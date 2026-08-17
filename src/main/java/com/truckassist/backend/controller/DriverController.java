@@ -2,11 +2,16 @@ package com.truckassist.backend.controller;
 
 import com.truckassist.backend.dto.DriverRequest;
 import com.truckassist.backend.dto.DriverResponse;
+import com.truckassist.backend.dto.DriverUpdateRequest;
 import com.truckassist.backend.service.DriverService;
+
 import io.swagger.v3.oas.annotations.Operation;
+
 import jakarta.validation.Valid;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
+
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -17,16 +22,20 @@ public class DriverController {
 
     private final DriverService service;
 
-    public DriverController(DriverService service) {
+    public DriverController(
+            DriverService service) {
+
         this.service = service;
     }
 
     // =====================================================
-    // CURRENT DRIVER
+    // GET CURRENT DRIVER
     // =====================================================
 
     @GetMapping("/me")
-    @Operation(summary = "Get current driver's profile")
+    @Operation(
+            summary = "Get current driver's profile"
+    )
     public DriverResponse getMe(
             Authentication authentication) {
 
@@ -35,7 +44,9 @@ public class DriverController {
                         authentication.getName()
                 );
 
-        return service.getByUserId(userId);
+        return service.getByUserId(
+                userId
+        );
     }
 
     // =====================================================
@@ -43,10 +54,12 @@ public class DriverController {
     // =====================================================
 
     @PutMapping("/me")
-    @Operation(summary = "Update current driver's profile")
+    @Operation(
+            summary = "Update current driver's profile"
+    )
     public DriverResponse updateMe(
             Authentication authentication,
-            @Valid @RequestBody DriverRequest request) {
+            @RequestBody DriverUpdateRequest request) {
 
         UUID userId =
                 UUID.fromString(
@@ -64,7 +77,9 @@ public class DriverController {
     // =====================================================
 
     @PatchMapping("/me/availability")
-    @Operation(summary = "Update driver availability")
+    @Operation(
+            summary = "Update driver availability"
+    )
     public DriverResponse updateAvailability(
             Authentication authentication,
             @RequestParam boolean available) {
@@ -86,11 +101,15 @@ public class DriverController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Create driver profile")
+    @Operation(
+            summary = "Create driver profile"
+    )
     public DriverResponse create(
             @Valid @RequestBody DriverRequest request) {
 
-        return service.create(request);
+        return service.create(
+                request
+        );
     }
 
     // =====================================================
@@ -98,7 +117,9 @@ public class DriverController {
     // =====================================================
 
     @GetMapping("/{id}")
-    @Operation(summary = "Get driver by ID")
+    @Operation(
+            summary = "Get driver by ID"
+    )
     public DriverResponse get(
             @PathVariable UUID id) {
 

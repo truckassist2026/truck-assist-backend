@@ -1,17 +1,10 @@
 package com.truckassist.backend.dto;
 
 import java.time.LocalDate;
-import java.util.UUID;
 
-public record DriverResponse(
-
-        UUID id,
-
-        UUID userId,
+public record DriverUpdateRequest(
 
         String name,
-
-        String phone,
 
         String email,
 
@@ -23,9 +16,7 @@ public record DriverResponse(
 
         String emergencyContactName,
 
-        String emergencyContactPhone,
-
-        boolean available
+        String emergencyContactPhone
 
 ) {
 }

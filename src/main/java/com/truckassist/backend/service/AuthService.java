@@ -3,14 +3,19 @@ package com.truckassist.backend.service;
 import com.truckassist.backend.dto.auth.AuthResponse;
 import com.truckassist.backend.dto.auth.SendOtpResponse;
 import com.truckassist.backend.entity.AuthOtp;
+import com.truckassist.backend.entity.Driver;
+import com.truckassist.backend.entity.Mechanic;
 import com.truckassist.backend.entity.User;
 import com.truckassist.backend.repository.AuthOtpRepository;
+import com.truckassist.backend.repository.DriverRepository;
+import com.truckassist.backend.repository.MechanicRepository;
 import com.truckassist.backend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Random;
@@ -21,6 +26,8 @@ public class AuthService {
 
     private final AuthOtpRepository otpRepository;
     private final UserRepository userRepository;
+    private final DriverRepository driverRepository;
+    private final MechanicRepository mechanicRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
 
@@ -31,9 +38,15 @@ public class AuthService {
 
     private final Random random = new Random();
 
+    // =====================================================
+    // CONSTRUCTOR
+    // =====================================================
+
     public AuthService(
             AuthOtpRepository otpRepository,
             UserRepository userRepository,
+            DriverRepository driverRepository,
+            MechanicRepository mechanicRepository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
 
@@ -51,6 +64,8 @@ public class AuthService {
 
         this.otpRepository = otpRepository;
         this.userRepository = userRepository;
+        this.driverRepository = driverRepository;
+        this.mechanicRepository = mechanicRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
 
@@ -61,54 +76,27 @@ public class AuthService {
     }
 
     // =====================================================
-    // SEND OTP - DRIVER
+    // DRIVER - SEND OTP
     // =====================================================
 
     public SendOtpResponse sendOtp(String phone) {
 
-        return sendOtp(phone, "DRIVER");
+        return sendOtp(
+                phone,
+                "DRIVER"
+        );
     }
 
     // =====================================================
-    // SEND OTP - ROLE AWARE
+    // ROLE-AWARE SEND OTP
     // =====================================================
 
     public SendOtpResponse sendOtp(
             String phone,
-            String requestedRole) {
+            String role) {
 
         phone = normalizePhone(phone);
-
-        requestedRole =
-                normalizeRole(requestedRole);
-
-        /*
-         * -------------------------------------------------
-         * CHECK EXISTING USER
-         * -------------------------------------------------
-         *
-         * We do this BEFORE sending OTP.
-         *
-         * Example:
-         *
-         * Existing DRIVER tries Mechanic app
-         *       -> reject
-         *
-         * Existing MECHANIC tries Driver app
-         *       -> reject
-         */
-        User existingUser =
-                userRepository
-                        .findByPhone(phone)
-                        .orElse(null);
-
-        if (existingUser != null) {
-
-            validateExistingUserRole(
-                    existingUser,
-                    requestedRole
-            );
-        }
+        role = normalizeRole(role);
 
         OffsetDateTime now =
                 OffsetDateTime.now();
@@ -138,7 +126,7 @@ public class AuthService {
 
                 long remaining =
                         resendSeconds -
-                        secondsSinceLastOtp;
+                                secondsSinceLastOtp;
 
                 throw new IllegalStateException(
                         "Please wait "
@@ -172,7 +160,6 @@ public class AuthService {
         );
 
         authOtp.setAttempts(0);
-
         authOtp.setVerified(false);
 
         otpRepository.save(authOtp);
@@ -192,18 +179,15 @@ public class AuthService {
             );
 
             System.out.println(
-                    "Application Role: "
-                            + requestedRole
+                    "Role: " + role
             );
 
             System.out.println(
-                    "Phone: "
-                            + phone
+                    "Phone: " + phone
             );
 
             System.out.println(
-                    "OTP: "
-                            + otp
+                    "OTP: " + otp
             );
 
             System.out.println(
@@ -220,7 +204,7 @@ public class AuthService {
     }
 
     // =====================================================
-    // VERIFY OTP - DRIVER
+    // DRIVER - VERIFY OTP
     // =====================================================
 
     public AuthResponse verifyOtp(
@@ -235,7 +219,7 @@ public class AuthService {
     }
 
     // =====================================================
-    // VERIFY OTP - ROLE AWARE
+    // ROLE-AWARE VERIFY OTP
     // =====================================================
 
     public AuthResponse verifyOtp(
@@ -272,8 +256,7 @@ public class AuthService {
         // =================================================
 
         if (now.isAfter(
-                authOtp.getExpiresAt()
-        )) {
+                authOtp.getExpiresAt())) {
 
             throw new IllegalArgumentException(
                     "OTP has expired"
@@ -292,7 +275,10 @@ public class AuthService {
             );
         }
 
-        // Increment attempts
+        // =================================================
+        // INCREMENT ATTEMPT
+        // =================================================
+
         authOtp.setAttempts(
                 authOtp.getAttempts() + 1
         );
@@ -317,7 +303,6 @@ public class AuthService {
         // =================================================
 
         authOtp.setVerified(true);
-
         authOtp.setVerifiedAt(now);
 
         otpRepository.save(authOtp);
@@ -333,22 +318,14 @@ public class AuthService {
 
         boolean isNewUser = false;
 
+        // =================================================
+        // NEW USER
+        // =================================================
+
         if (user == null) {
 
-            /*
-             * ------------------------------------------------
-             * NEW USER
-             * ------------------------------------------------
-             *
-             * The role now comes from the application.
-             *
-             * Driver app:
-             *     DRIVER
-             *
-             * Mechanic app:
-             *     MECHANIC
-             */
-            user = new User();
+            user =
+                    new User();
 
             user.setPhone(phone);
 
@@ -365,34 +342,92 @@ public class AuthService {
 
             isNewUser = true;
 
-        } else {
-
-            /*
-             * ------------------------------------------------
-             * EXISTING USER
-             * ------------------------------------------------
-             *
-             * Do NOT change the existing user's role.
-             *
-             * Driver cannot login through Mechanic app.
-             * Mechanic cannot login through Driver app.
-             */
-            validateExistingUserRole(
-                    user,
-                    requestedRole
+            System.out.println(
+                    "New "
+                            + requestedRole
+                            + " user created: "
+                            + user.getId()
             );
         }
 
         // =================================================
-        // GENERATE JWT
+        // EXISTING USER
         // =================================================
+
+        else {
+
+            String existingRole =
+                    normalizeRole(
+                            user.getRole()
+                    );
+
+            // -------------------------------------------------
+            // Do not silently change account type
+            // -------------------------------------------------
+
+            if (!existingRole.equals(
+                    requestedRole)) {
+
+                throw new IllegalStateException(
+                        "This mobile number is already registered as "
+                                + existingRole
+                                + ". Please use the correct application."
+                );
+            }
+
+            // -------------------------------------------------
+            // Ensure active
+            // -------------------------------------------------
+
+            if (user.getStatus() == null ||
+                    !"ACTIVE".equalsIgnoreCase(
+                            user.getStatus())) {
+
+                user.setStatus(
+                        "ACTIVE"
+                );
+
+                user =
+                        userRepository.save(user);
+            }
+        }
+
+        // =====================================================
+        // ENSURE DRIVER PROFILE
+        // =====================================================
+
+        if ("DRIVER".equals(
+                requestedRole)) {
+
+            ensureDriverProfile(
+                    user
+            );
+        }
+
+        // =====================================================
+        // ENSURE MECHANIC PROFILE
+        // =====================================================
+
+        else if ("MECHANIC".equals(
+                requestedRole)) {
+
+            ensureMechanicProfile(
+                    user
+            );
+        }
+
+        // =====================================================
+        // GENERATE JWT
+        // =====================================================
 
         String token =
-                jwtService.generateToken(user);
+                jwtService.generateToken(
+                        user
+                );
 
-        // =================================================
-        // RETURN AUTH RESPONSE
-        // =================================================
+        // =====================================================
+        // AUTH RESPONSE
+        // =====================================================
 
         return new AuthResponse(
                 token,
@@ -405,80 +440,146 @@ public class AuthService {
     }
 
     // =====================================================
-    // VALIDATE EXISTING USER ROLE
+    // ENSURE DRIVER PROFILE
     // =====================================================
 
-    private void validateExistingUserRole(
-            User user,
-            String requestedRole) {
+    private void ensureDriverProfile(
+            User user) {
 
-        String existingRole =
-                user.getRole();
+        // Your existing DriverRepository provides
+        // findByUserId(), not existsByUserId().
 
-        if (existingRole == null ||
-                existingRole.trim().isEmpty()) {
+        if (driverRepository
+                .findByUserId(
+                        user.getId()
+                )
+                .isPresent()) {
 
-            throw new IllegalStateException(
-                    "User role is not configured"
-            );
+            return;
         }
 
-        if (!existingRole.equalsIgnoreCase(
-                requestedRole
-        )) {
+        // =================================================
+        // CREATE DRIVER
+        // =================================================
 
-            if ("DRIVER".equalsIgnoreCase(
-                    existingRole
-            )) {
+        Driver driver =
+                new Driver();
 
-                throw new IllegalStateException(
-                        "This mobile number is registered as a Driver. Please use the Driver application."
-                );
-            }
+        driver.setUser(
+                user
+        );
 
-            if ("MECHANIC".equalsIgnoreCase(
-                    existingRole
-            )) {
+        // Profile details will be completed
+        // from Driver Profile screen.
 
-                throw new IllegalStateException(
-                        "This mobile number is registered as a Mechanic. Please use the Mechanic application."
-                );
-            }
+        driver.setLicenseNumber(
+                null
+        );
 
-            throw new IllegalStateException(
-                    "This mobile number is registered with another application."
-            );
-        }
+        driver.setLicenseExpiryDate(
+                null
+        );
+
+        driver.setEmergencyContactName(
+                null
+        );
+
+        driver.setEmergencyContactPhone(
+                null
+        );
+
+        driver.setAvailable(
+                true
+        );
+
+        driverRepository.save(
+                driver
+        );
+
+        System.out.println(
+                "Driver profile created for user: "
+                        + user.getId()
+        );
     }
 
     // =====================================================
-    // NORMALIZE ROLE
+    // ENSURE MECHANIC PROFILE
     // =====================================================
 
-    private String normalizeRole(
-            String role) {
+    private void ensureMechanicProfile(
+            User user) {
 
-        if (role == null ||
-                role.trim().isEmpty()) {
+        // MechanicRepository already provides
+        // existsByUserId().
 
-            throw new IllegalArgumentException(
-                    "Application role is required"
-            );
+        if (mechanicRepository
+                .existsByUserId(
+                        user.getId()
+                )) {
+
+            return;
         }
 
-        String normalized =
-                role.trim()
-                        .toUpperCase();
+        // =================================================
+        // CREATE MECHANIC
+        // =================================================
 
-        if (!normalized.equals("DRIVER") &&
-                !normalized.equals("MECHANIC")) {
+        Mechanic mechanic =
+                new Mechanic();
 
-            throw new IllegalArgumentException(
-                    "Invalid application role"
-            );
-        }
+        mechanic.setUser(
+                user
+        );
 
-        return normalized;
+        // =================================================
+        // INITIAL PROFILE
+        // =================================================
+
+        mechanic.setExperienceYears(
+                null
+        );
+
+        mechanic.setWorkshopName(
+                null
+        );
+
+        mechanic.setWorkshopAddress(
+                null
+        );
+
+        // New mechanic starts offline
+        mechanic.setAvailable(
+                false
+        );
+
+        mechanic.setRating(
+                BigDecimal.ZERO
+        );
+
+        mechanic.setTotalJobs(
+                0
+        );
+
+        mechanic.setLatitude(
+                null
+        );
+
+        mechanic.setLongitude(
+                null
+        );
+
+        mechanic.setLastLocationAt(
+                null
+        );
+
+        mechanicRepository.save(
+                mechanic
+        );
+
+        System.out.println(
+                "Mechanic profile created for user: "
+                        + user.getId()
+        );
     }
 
     // =====================================================
@@ -489,7 +590,9 @@ public class AuthService {
 
         return String.format(
                 "%06d",
-                random.nextInt(1_000_000)
+                random.nextInt(
+                        1_000_000
+                )
         );
     }
 
@@ -507,8 +610,53 @@ public class AuthService {
             );
         }
 
-        return phone
-                .replaceAll("[\\s-]", "")
-                .trim();
+        String normalized =
+                phone
+                        .replaceAll(
+                                "[\\s-]",
+                                ""
+                        )
+                        .trim();
+
+        if (normalized.isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Phone number is required"
+            );
+        }
+
+        return normalized;
+    }
+
+    // =====================================================
+    // NORMALIZE ROLE
+    // =====================================================
+
+    private String normalizeRole(
+            String role) {
+
+        if (role == null ||
+                role.trim().isEmpty()) {
+
+            return "DRIVER";
+        }
+
+        String normalized =
+                role
+                        .trim()
+                        .toUpperCase();
+
+        if (!"DRIVER".equals(
+                normalized) &&
+                !"MECHANIC".equals(
+                        normalized)) {
+
+            throw new IllegalArgumentException(
+                    "Invalid authentication role: "
+                            + role
+            );
+        }
+
+        return normalized;
     }
 }
