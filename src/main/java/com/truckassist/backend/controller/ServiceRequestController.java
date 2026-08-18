@@ -55,19 +55,70 @@ public class ServiceRequestController {
     // =====================================================
 
     @GetMapping("/my")
-    @Operation(
-            summary = "Get current driver's service requests"
-    )
-    public List<ServiceRequestResponse> getMyRequests(
-            Authentication authentication) {
+@Operation(
+        summary = "Get current driver's service requests"
+)
+public List<ServiceRequestResponse> getMyRequests(
+        Authentication authentication) {
 
-        UUID userId =
-                UUID.fromString(
-                        authentication.getName()
-                );
+    System.out.println(
+            "[REQUEST] ========================================"
+    );
 
-        return service.getMyRequests(userId);
+    System.out.println(
+            "[REQUEST] GET /api/v1/requests/my"
+    );
+
+    System.out.println(
+            "[REQUEST] Authentication: " +
+            authentication
+    );
+
+    if (authentication == null) {
+
+        System.out.println(
+                "[REQUEST] ERROR: Authentication is NULL"
+        );
+
+        throw new IllegalStateException(
+                "Authentication is required"
+        );
     }
+
+    System.out.println(
+            "[REQUEST] Authenticated: " +
+            authentication.isAuthenticated()
+    );
+
+    System.out.println(
+            "[REQUEST] User ID: " +
+            authentication.getName()
+    );
+
+    System.out.println(
+            "[REQUEST] Authorities: " +
+            authentication.getAuthorities()
+    );
+
+    UUID userId =
+            UUID.fromString(
+                    authentication.getName()
+            );
+
+    List<ServiceRequestResponse> result =
+            service.getMyRequests(userId);
+
+    System.out.println(
+            "[REQUEST] Requests found: " +
+            result.size()
+    );
+
+    System.out.println(
+            "[REQUEST] ========================================"
+    );
+
+    return result;
+}
 
     // =====================================================
     // ACTIVE REQUEST

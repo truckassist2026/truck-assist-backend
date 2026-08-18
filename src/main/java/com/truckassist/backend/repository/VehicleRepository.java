@@ -6,9 +6,31 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.UUID;
 
-public interface VehicleRepository extends JpaRepository<Vehicle, UUID> {
+public interface VehicleRepository
+        extends JpaRepository<Vehicle, UUID> {
 
-    List<Vehicle> findByDriverId(UUID driverId);
+    // =====================================================
+    // GET VEHICLES BY DRIVER
+    // =====================================================
 
-    boolean existsByRegistrationNumber(String registrationNumber);
+    List<Vehicle> findByDriverId(
+            UUID driverId
+    );
+
+    // =====================================================
+    // CREATE DUPLICATE CHECK
+    // =====================================================
+
+    boolean existsByRegistrationNumber(
+            String registrationNumber
+    );
+
+    // =====================================================
+    // UPDATE DUPLICATE CHECK
+    // =====================================================
+
+    boolean existsByRegistrationNumberAndIdNot(
+            String registrationNumber,
+            UUID id
+    );
 }

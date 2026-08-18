@@ -3,8 +3,11 @@ package com.truckassist.backend.controller;
 import com.truckassist.backend.dto.VehicleRequest;
 import com.truckassist.backend.dto.VehicleResponse;
 import com.truckassist.backend.service.VehicleService;
+
 import io.swagger.v3.oas.annotations.Operation;
+
 import jakarta.validation.Valid;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -18,7 +21,9 @@ public class VehicleController {
 
     private final VehicleService service;
 
-    public VehicleController(VehicleService service) {
+    public VehicleController(
+            VehicleService service) {
+
         this.service = service;
     }
 
@@ -27,7 +32,9 @@ public class VehicleController {
     // =====================================================
 
     @GetMapping("/my")
-    @Operation(summary = "Get current driver's vehicles")
+    @Operation(
+            summary = "Get current driver's vehicles"
+    )
     public List<VehicleResponse> getMyVehicles(
             Authentication authentication) {
 
@@ -36,19 +43,24 @@ public class VehicleController {
                         authentication.getName()
                 );
 
-        return service.getMyVehicles(userId);
+        return service.getMyVehicles(
+                userId
+        );
     }
 
     // =====================================================
-    // CREATE MY VEHICLE
+    // CREATE VEHICLE
     // =====================================================
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Create vehicle")
+    @Operation(
+            summary = "Create vehicle"
+    )
     public VehicleResponse create(
             Authentication authentication,
-            @Valid @RequestBody VehicleRequest request) {
+            @Valid @RequestBody
+            VehicleRequest request) {
 
         UUID userId =
                 UUID.fromString(
@@ -62,15 +74,32 @@ public class VehicleController {
     }
 
     // =====================================================
-    // UPDATE MY VEHICLE
+    // GET VEHICLE BY ID
+    // =====================================================
+
+    @GetMapping("/{id}")
+    @Operation(
+            summary = "Get vehicle by ID"
+    )
+    public VehicleResponse get(
+            @PathVariable UUID id) {
+
+        return service.getById(id);
+    }
+
+    // =====================================================
+    // UPDATE VEHICLE
     // =====================================================
 
     @PutMapping("/{id}")
-    @Operation(summary = "Update vehicle")
+    @Operation(
+            summary = "Update vehicle"
+    )
     public VehicleResponse update(
             Authentication authentication,
             @PathVariable UUID id,
-            @Valid @RequestBody VehicleRequest request) {
+            @Valid @RequestBody
+            VehicleRequest request) {
 
         UUID userId =
                 UUID.fromString(
@@ -85,12 +114,37 @@ public class VehicleController {
     }
 
     // =====================================================
-    // DELETE MY VEHICLE
+    // SET PRIMARY VEHICLE
+    // =====================================================
+
+    @PatchMapping("/{id}/primary")
+    @Operation(
+            summary = "Set vehicle as primary"
+    )
+    public VehicleResponse setPrimary(
+            Authentication authentication,
+            @PathVariable UUID id) {
+
+        UUID userId =
+                UUID.fromString(
+                        authentication.getName()
+                );
+
+        return service.setPrimaryVehicle(
+                userId,
+                id
+        );
+    }
+
+    // =====================================================
+    // DELETE VEHICLE
     // =====================================================
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Delete vehicle")
+    @Operation(
+            summary = "Permanently delete vehicle"
+    )
     public void delete(
             Authentication authentication,
             @PathVariable UUID id) {
@@ -104,29 +158,5 @@ public class VehicleController {
                 userId,
                 id
         );
-    }
-
-    // =====================================================
-    // GET VEHICLE BY ID
-    // =====================================================
-
-    @GetMapping("/{id}")
-    @Operation(summary = "Get vehicle by ID")
-    public VehicleResponse get(
-            @PathVariable UUID id) {
-
-        return service.getById(id);
-    }
-
-    // =====================================================
-    // EXISTING DRIVER VEHICLE API
-    // =====================================================
-
-    @GetMapping("/driver/{driverId}")
-    @Operation(summary = "Get vehicles by driver ID")
-    public List<VehicleResponse> getByDriver(
-            @PathVariable UUID driverId) {
-
-        return service.getByDriver(driverId);
     }
 }

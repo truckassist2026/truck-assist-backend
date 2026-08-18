@@ -12,7 +12,9 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtFilter) {
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtFilter) {
+
         this.jwtFilter = jwtFilter;
     }
 
@@ -21,7 +23,9 @@ public class SecurityConfig {
             HttpSecurity http) throws Exception {
 
         http
-                .csrf(csrf -> csrf.disable())
+                .csrf(csrf ->
+                        csrf.disable()
+                )
 
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(
@@ -29,18 +33,29 @@ public class SecurityConfig {
                         )
                 )
 
-                .authorizeHttpRequests(auth -> auth
+                .authorizeHttpRequests(auth ->
+                        auth
 
-                        .requestMatchers(
-                                "/api/v1/health",
-                                "/api/v1/auth/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/v3/api-docs/**"
-                        ).permitAll()
+                                // =====================================
+                                // PUBLIC ENDPOINTS
+                                // =====================================
 
-                        .anyRequest()
-                        .authenticated()
+                                .requestMatchers(
+                                        "/api/v1/health",
+                                        "/api/v1/auth/**",
+                                        "/swagger-ui/**",
+                                        "/swagger-ui.html",
+                                        "/v3/api-docs/**"
+                                )
+                                .permitAll()
+
+                                // =====================================
+                                // EVERYTHING ELSE
+                                // REQUIRES JWT
+                                // =====================================
+
+                                .anyRequest()
+                                .authenticated()
                 )
 
                 .addFilterBefore(

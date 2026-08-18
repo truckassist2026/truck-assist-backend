@@ -7,6 +7,7 @@ import com.truckassist.backend.entity.Vehicle;
 import com.truckassist.backend.exception.ResourceNotFoundException;
 import com.truckassist.backend.repository.DriverRepository;
 import com.truckassist.backend.repository.VehicleRepository;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,32 +37,44 @@ public class VehicleService {
             UUID userId,
             VehicleRequest request) {
 
-        Driver driver = getDriverByUserId(userId);
+        Driver driver =
+                getDriverByUserId(userId);
 
-        validateRegistrationNumber(
-                request.registrationNumber()
+        String registrationNumber =
+                normalizeRegistrationNumber(
+                        request.registrationNumber()
+                );
+
+        // -------------------------------------------------
+        // Registration must be unique among existing
+        // vehicles.
+        // Since we are now permanently deleting vehicles,
+        // a deleted vehicle will no longer exist.
+        // -------------------------------------------------
+
+        validateRegistrationNumberForCreate(
+                registrationNumber
         );
 
-        Vehicle vehicle = new Vehicle();
+        Vehicle vehicle =
+                new Vehicle();
 
         vehicle.setDriver(driver);
 
         vehicle.setRegistrationNumber(
-                request.registrationNumber()
-                        .trim()
-                        .toUpperCase()
+                registrationNumber
         );
 
         vehicle.setManufacturer(
-                request.manufacturer()
+                clean(request.manufacturer())
         );
 
         vehicle.setModel(
-                request.model()
+                clean(request.model())
         );
 
         vehicle.setVehicleType(
-                request.vehicleType()
+                clean(request.vehicleType())
         );
 
         vehicle.setManufacturingYear(
@@ -69,15 +82,41 @@ public class VehicleService {
         );
 
         vehicle.setColor(
-                request.color()
-        );
-
-        vehicle.setPrimary(
-                request.primary() != null &&
-                        request.primary()
+                clean(request.color())
         );
 
         vehicle.setStatus("ACTIVE");
+
+        // -------------------------------------------------
+        // Primary vehicle handling
+        // -------------------------------------------------
+
+        List<Vehicle> existingVehicles =
+                getDriverVehicles(driver.getId());
+
+        boolean requestedPrimary =
+                Boolean.TRUE.equals(
+                        request.primary()
+                );
+
+        if (existingVehicles.isEmpty()) {
+
+            // First vehicle is automatically Primary
+            vehicle.setPrimary(true);
+
+        } else if (requestedPrimary) {
+
+            // Clear existing Primary
+            clearPrimaryVehicle(
+                    driver.getId()
+            );
+
+            vehicle.setPrimary(true);
+
+        } else {
+
+            vehicle.setPrimary(false);
+        }
 
         Vehicle saved =
                 vehicleRepository.save(vehicle);
@@ -93,32 +132,30 @@ public class VehicleService {
     public List<VehicleResponse> getMyVehicles(
             UUID userId) {
 
-        Driver driver = getDriverByUserId(userId);
+        Driver driver =
+                getDriverByUserId(userId);
 
         return vehicleRepository
                 .findByDriverId(driver.getId())
                 .stream()
-                .filter(vehicle ->
-                        !"DELETED".equalsIgnoreCase(
-                                vehicle.getStatus()
-                        )
-                )
                 .map(this::toResponse)
                 .toList();
     }
 
     // =====================================================
-    // GET VEHICLE
+    // GET VEHICLE BY ID
     // =====================================================
 
     @Transactional(readOnly = true)
-    public VehicleResponse getById(UUID id) {
+    public VehicleResponse getById(
+            UUID id) {
 
         Vehicle vehicle =
                 vehicleRepository.findById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
-                                        "Vehicle not found: " + id
+                                        "Vehicle not found: "
+                                                + id
                                 )
                         );
 
@@ -146,25 +183,47 @@ public class VehicleService {
                                 )
                         );
 
-        if (!vehicle.getDriver()
-                .getId()
-                .equals(driver.getId())) {
+        // -------------------------------------------------
+        // Ownership validation
+        // -------------------------------------------------
 
-            throw new IllegalArgumentException(
-                    "Vehicle does not belong to current driver"
-            );
-        }
+        validateOwnership(
+                vehicle,
+                driver
+        );
+
+        // -------------------------------------------------
+        // Registration number
+        // -------------------------------------------------
+
+        String registrationNumber =
+                normalizeRegistrationNumber(
+                        request.registrationNumber()
+                );
+
+        validateRegistrationNumberForUpdate(
+                registrationNumber,
+                vehicleId
+        );
+
+        vehicle.setRegistrationNumber(
+                registrationNumber
+        );
+
+        // -------------------------------------------------
+        // Vehicle information
+        // -------------------------------------------------
 
         vehicle.setManufacturer(
-                request.manufacturer()
+                clean(request.manufacturer())
         );
 
         vehicle.setModel(
-                request.model()
+                clean(request.model())
         );
 
         vehicle.setVehicleType(
-                request.vehicleType()
+                clean(request.vehicleType())
         );
 
         vehicle.setManufacturingYear(
@@ -172,23 +231,103 @@ public class VehicleService {
         );
 
         vehicle.setColor(
-                request.color()
+                clean(request.color())
         );
 
-        if (request.primary() != null) {
+        // -------------------------------------------------
+        // Primary
+        // -------------------------------------------------
 
-            vehicle.setPrimary(
-                    request.primary()
+        if (Boolean.TRUE.equals(
+                request.primary()
+        )) {
+
+            clearPrimaryVehicle(
+                    driver.getId()
             );
+
+            vehicle.setPrimary(true);
+
+        } else if (Boolean.FALSE.equals(
+                request.primary()
+        )) {
+
+            /*
+             * If this is the only vehicle, keep it Primary.
+             */
+
+            List<Vehicle> vehicles =
+                    getDriverVehicles(
+                            driver.getId()
+                    );
+
+            if (vehicles.size() > 1) {
+
+                vehicle.setPrimary(false);
+
+            } else {
+
+                vehicle.setPrimary(true);
+            }
         }
 
-        return toResponse(
-                vehicleRepository.save(vehicle)
-        );
+        Vehicle saved =
+                vehicleRepository.save(vehicle);
+
+        return toResponse(saved);
     }
 
     // =====================================================
-    // DELETE CURRENT DRIVER VEHICLE
+    // SET PRIMARY VEHICLE
+    // =====================================================
+
+    public VehicleResponse setPrimaryVehicle(
+            UUID userId,
+            UUID vehicleId) {
+
+        Driver driver =
+                getDriverByUserId(userId);
+
+        Vehicle vehicle =
+                vehicleRepository.findById(vehicleId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Vehicle not found: "
+                                                + vehicleId
+                                )
+                        );
+
+        // -------------------------------------------------
+        // Ownership
+        // -------------------------------------------------
+
+        validateOwnership(
+                vehicle,
+                driver
+        );
+
+        // -------------------------------------------------
+        // Clear existing Primary
+        // -------------------------------------------------
+
+        clearPrimaryVehicle(
+                driver.getId()
+        );
+
+        // -------------------------------------------------
+        // Set selected vehicle Primary
+        // -------------------------------------------------
+
+        vehicle.setPrimary(true);
+
+        Vehicle saved =
+                vehicleRepository.save(vehicle);
+
+        return toResponse(saved);
+    }
+
+    // =====================================================
+    // PERMANENT DELETE CURRENT DRIVER VEHICLE
     // =====================================================
 
     public void deleteMyVehicle(
@@ -207,23 +346,58 @@ public class VehicleService {
                                 )
                         );
 
-        if (!vehicle.getDriver()
-                .getId()
-                .equals(driver.getId())) {
+        // -------------------------------------------------
+        // Ownership
+        // -------------------------------------------------
 
-            throw new IllegalArgumentException(
-                    "Vehicle does not belong to current driver"
-            );
+        validateOwnership(
+                vehicle,
+                driver
+        );
+
+        boolean wasPrimary =
+                vehicle.isPrimary();
+
+        // -------------------------------------------------
+        // PERMANENT DELETE
+        // -------------------------------------------------
+
+        vehicleRepository.delete(vehicle);
+
+        vehicleRepository.flush();
+
+        // -------------------------------------------------
+        // If Primary vehicle was deleted,
+        // automatically select another vehicle.
+        // -------------------------------------------------
+
+        if (wasPrimary) {
+
+            List<Vehicle> remainingVehicles =
+                    getDriverVehicles(
+                            driver.getId()
+                    );
+
+            if (!remainingVehicles.isEmpty()) {
+
+                Vehicle newPrimary =
+                        remainingVehicles.get(0);
+
+                clearPrimaryVehicle(
+                        driver.getId()
+                );
+
+                newPrimary.setPrimary(true);
+
+                vehicleRepository.save(
+                        newPrimary
+                );
+            }
         }
-
-        // Soft delete
-        vehicle.setStatus("DELETED");
-
-        vehicleRepository.save(vehicle);
     }
 
     // =====================================================
-    // EXISTING GET BY DRIVER
+    // GET VEHICLES BY DRIVER
     // =====================================================
 
     @Transactional(readOnly = true)
@@ -233,20 +407,16 @@ public class VehicleService {
         return vehicleRepository
                 .findByDriverId(driverId)
                 .stream()
-                .filter(vehicle ->
-                        !"DELETED".equalsIgnoreCase(
-                                vehicle.getStatus()
-                        )
-                )
                 .map(this::toResponse)
                 .toList();
     }
 
     // =====================================================
-    // HELPERS
+    // GET DRIVER BY USER ID
     // =====================================================
 
-    private Driver getDriverByUserId(UUID userId) {
+    private Driver getDriverByUserId(
+            UUID userId) {
 
         return driverRepository
                 .findByUserId(userId)
@@ -257,7 +427,104 @@ public class VehicleService {
                 );
     }
 
-    private void validateRegistrationNumber(
+    // =====================================================
+    // GET DRIVER VEHICLES
+    // =====================================================
+
+    private List<Vehicle> getDriverVehicles(
+            UUID driverId) {
+
+        return vehicleRepository
+                .findByDriverId(driverId);
+    }
+
+    // =====================================================
+    // CLEAR PRIMARY VEHICLE
+    // =====================================================
+
+    private void clearPrimaryVehicle(
+            UUID driverId) {
+
+        List<Vehicle> vehicles =
+                vehicleRepository
+                        .findByDriverId(driverId);
+
+        for (Vehicle vehicle : vehicles) {
+
+            if (vehicle.isPrimary()) {
+
+                vehicle.setPrimary(false);
+
+                vehicleRepository.save(vehicle);
+            }
+        }
+    }
+
+    // =====================================================
+    // VALIDATE REGISTRATION - CREATE
+    // =====================================================
+
+    private void validateRegistrationNumberForCreate(
+            String registrationNumber) {
+
+        if (vehicleRepository
+                .existsByRegistrationNumber(
+                        registrationNumber
+                )) {
+
+            throw new IllegalArgumentException(
+                    "Vehicle registration already exists"
+            );
+        }
+    }
+
+    // =====================================================
+    // VALIDATE REGISTRATION - UPDATE
+    // =====================================================
+
+    private void validateRegistrationNumberForUpdate(
+            String registrationNumber,
+            UUID vehicleId) {
+
+        boolean exists =
+                vehicleRepository
+                        .existsByRegistrationNumberAndIdNot(
+                                registrationNumber,
+                                vehicleId
+                        );
+
+        if (exists) {
+
+            throw new IllegalArgumentException(
+                    "Vehicle registration already exists"
+            );
+        }
+    }
+
+    // =====================================================
+    // OWNERSHIP VALIDATION
+    // =====================================================
+
+    private void validateOwnership(
+            Vehicle vehicle,
+            Driver driver) {
+
+        if (vehicle.getDriver() == null ||
+                !vehicle.getDriver()
+                        .getId()
+                        .equals(driver.getId())) {
+
+            throw new IllegalArgumentException(
+                    "Vehicle does not belong to current driver"
+            );
+        }
+    }
+
+    // =====================================================
+    // NORMALIZE REGISTRATION NUMBER
+    // =====================================================
+
+    private String normalizeRegistrationNumber(
             String registrationNumber) {
 
         if (registrationNumber == null ||
@@ -268,19 +535,34 @@ public class VehicleService {
             );
         }
 
-        String normalized =
-                registrationNumber
-                        .trim()
-                        .toUpperCase();
-
-        if (vehicleRepository
-                .existsByRegistrationNumber(normalized)) {
-
-            throw new IllegalArgumentException(
-                    "Vehicle registration already exists"
-            );
-        }
+        return registrationNumber
+                .trim()
+                .toUpperCase();
     }
+
+    // =====================================================
+    // CLEAN OPTIONAL TEXT
+    // =====================================================
+
+    private String clean(String value) {
+
+        if (value == null) {
+            return null;
+        }
+
+        String cleaned =
+                value.trim();
+
+        if (cleaned.isEmpty()) {
+            return null;
+        }
+
+        return cleaned;
+    }
+
+    // =====================================================
+    // RESPONSE MAPPER
+    // =====================================================
 
     private VehicleResponse toResponse(
             Vehicle vehicle) {
