@@ -34,6 +34,7 @@ public class MechanicService {
         this.userRepository = userRepository;
     }
 
+
     // =====================================================
     // GET MY PROFILE
     // =====================================================
@@ -47,6 +48,7 @@ public class MechanicService {
         return toResponse(mechanic);
     }
 
+
     // =====================================================
     // CREATE / UPDATE MY PROFILE
     // =====================================================
@@ -55,6 +57,10 @@ public class MechanicService {
             UUID userId,
             MechanicProfileRequest request) {
 
+        // =================================================
+        // GET USER
+        // =================================================
+
         User user =
                 userRepository.findById(userId)
                         .orElseThrow(() ->
@@ -62,6 +68,11 @@ public class MechanicService {
                                         "User not found"
                                 )
                         );
+
+
+        // =================================================
+        // VALIDATE ROLE
+        // =================================================
 
         if (!"MECHANIC".equalsIgnoreCase(
                 user.getRole()
@@ -72,10 +83,59 @@ public class MechanicService {
             );
         }
 
+
+        // =================================================
+        // UPDATE USER INFORMATION
+        // =================================================
+        //
+        // Name and Email belong to the User entity.
+        //
+        // Phone is intentionally NOT changed here.
+        // Phone is used for authentication.
+        // =================================================
+
+        if (request.name() != null) {
+
+            String name =
+                    request.name().trim();
+
+            user.setName(
+                    name.isEmpty()
+                            ? null
+                            : name
+            );
+        }
+
+
+        if (request.email() != null) {
+
+            String email =
+                    request.email().trim();
+
+            user.setEmail(
+                    email.isEmpty()
+                            ? null
+                            : email
+            );
+        }
+
+
+        // =================================================
+        // SAVE USER
+        // =================================================
+
+        userRepository.save(user);
+
+
+        // =================================================
+        // GET EXISTING MECHANIC PROFILE
+        // =================================================
+
         Mechanic mechanic =
                 mechanicRepository
                         .findByUserId(userId)
                         .orElse(null);
+
 
         // =================================================
         // FIRST PROFILE CREATION
@@ -96,6 +156,11 @@ public class MechanicService {
             mechanic.setTotalJobs(0);
         }
 
+
+        // =================================================
+        // UPDATE MECHANIC INFORMATION
+        // =================================================
+
         mechanic.setExperienceYears(
                 request.experienceYears()
         );
@@ -108,10 +173,26 @@ public class MechanicService {
                 request.workshopAddress()
         );
 
+
+        // =================================================
+        // SAVE MECHANIC
+        // =================================================
+
+        Mechanic savedMechanic =
+                mechanicRepository.save(
+                        mechanic
+                );
+
+
+        // =================================================
+        // RETURN UPDATED PROFILE
+        // =================================================
+
         return toResponse(
-                mechanicRepository.save(mechanic)
+                savedMechanic
         );
     }
+
 
     // =====================================================
     // AVAILABILITY
@@ -127,6 +208,7 @@ public class MechanicService {
         boolean available =
                 request.available();
 
+
         // A mechanic should not be available
         // without sending a location first.
 
@@ -139,14 +221,19 @@ public class MechanicService {
             );
         }
 
+
         mechanic.setAvailable(
                 available
         );
 
+
         return toResponse(
-                mechanicRepository.save(mechanic)
+                mechanicRepository.save(
+                        mechanic
+                )
         );
     }
+
 
     // =====================================================
     // LOCATION
@@ -159,22 +246,29 @@ public class MechanicService {
         Mechanic mechanic =
                 getMechanicByUserId(userId);
 
+
         mechanic.setLatitude(
                 request.latitude()
         );
+
 
         mechanic.setLongitude(
                 request.longitude()
         );
 
+
         mechanic.setLastLocationAt(
                 OffsetDateTime.now()
         );
 
+
         return toResponse(
-                mechanicRepository.save(mechanic)
+                mechanicRepository.save(
+                        mechanic
+                )
         );
     }
+
 
     // =====================================================
     // NEARBY MECHANICS
@@ -194,33 +288,48 @@ public class MechanicService {
             );
         }
 
+
         if (radiusKm <= 0) {
+
             radiusKm = 10;
         }
 
+
         final double searchRadius =
                 radiusKm;
+
 
         OffsetDateTime locationCutoff =
                 OffsetDateTime.now()
                         .minusMinutes(10);
 
+
         return mechanicRepository
                 .findByAvailableTrue()
                 .stream()
 
-                // Must have location
+                // =================================================
+                // MUST HAVE LOCATION
+                // =================================================
+
                 .filter(mechanic ->
                         mechanic.getLatitude() != null &&
                         mechanic.getLongitude() != null
                 )
 
-                // Location should be reasonably fresh
+                // =================================================
+                // LOCATION SHOULD BE FRESH
+                // =================================================
+
                 .filter(mechanic ->
                         mechanic.getLastLocationAt() != null &&
                         mechanic.getLastLocationAt()
                                 .isAfter(locationCutoff)
                 )
+
+                // =================================================
+                // CALCULATE DISTANCE
+                // =================================================
 
                 .map(mechanic -> {
 
@@ -234,16 +343,25 @@ public class MechanicService {
                                             .doubleValue()
                             );
 
+
                     return new NearbyMechanicWithDistance(
                             mechanic,
                             distance
                     );
                 })
 
+                // =================================================
+                // FILTER BY RADIUS
+                // =================================================
+
                 .filter(item ->
                         item.distanceKm()
                                 <= searchRadius
                 )
+
+                // =================================================
+                // SORT BY DISTANCE
+                // =================================================
 
                 .sorted(
                         Comparator.comparingDouble(
@@ -251,6 +369,10 @@ public class MechanicService {
                                         ::distanceKm
                         )
                 )
+
+                // =================================================
+                // RESPONSE
+                // =================================================
 
                 .map(item ->
                         toNearbyResponse(
@@ -261,6 +383,7 @@ public class MechanicService {
 
                 .toList();
     }
+
 
     // =====================================================
     // GET MECHANIC
@@ -278,6 +401,7 @@ public class MechanicService {
                 );
     }
 
+
     // =====================================================
     // RESPONSE
     // =====================================================
@@ -288,24 +412,45 @@ public class MechanicService {
         User user =
                 mechanic.getUser();
 
+
         return new MechanicResponse(
+
                 mechanic.getId(),
+
                 user.getId(),
+
                 user.getName(),
+
                 user.getPhone(),
+
                 user.getEmail(),
+
                 user.getProfileImageUrl(),
+
                 mechanic.getExperienceYears(),
+
                 mechanic.getWorkshopName(),
+
                 mechanic.getWorkshopAddress(),
+
                 mechanic.isAvailable(),
+
                 mechanic.getRating(),
+
                 mechanic.getTotalJobs(),
+
                 mechanic.getLatitude(),
+
                 mechanic.getLongitude(),
+
                 mechanic.getLastLocationAt()
         );
     }
+
+
+    // =====================================================
+    // NEARBY RESPONSE
+    // =====================================================
 
     private NearbyMechanicResponse toNearbyResponse(
             Mechanic mechanic,
@@ -314,23 +459,36 @@ public class MechanicService {
         User user =
                 mechanic.getUser();
 
+
         return new NearbyMechanicResponse(
+
                 mechanic.getId(),
+
                 user.getId(),
+
                 user.getName(),
+
                 user.getPhone(),
+
                 mechanic.getWorkshopName(),
+
                 mechanic.getRating(),
+
                 mechanic.getTotalJobs(),
+
                 mechanic.getLatitude(),
+
                 mechanic.getLongitude(),
-                Math.round(distanceKm * 100.0)
-                        / 100.0
+
+                Math.round(
+                        distanceKm * 100.0
+                ) / 100.0
         );
     }
 
+
     // =====================================================
-    // HAVERSINE
+    // HAVERSINE DISTANCE
     // =====================================================
 
     private double calculateDistanceKm(
@@ -342,28 +500,36 @@ public class MechanicService {
         final double earthRadiusKm =
                 6371.0;
 
+
         double dLat =
                 Math.toRadians(
                         lat2 - lat1
                 );
+
 
         double dLon =
                 Math.toRadians(
                         lon2 - lon1
                 );
 
+
         double a =
                 Math.sin(dLat / 2)
                         * Math.sin(dLat / 2)
+
                 +
+
                 Math.cos(
                         Math.toRadians(lat1)
                 )
+
                         * Math.cos(
                                 Math.toRadians(lat2)
                         )
+
                         * Math.sin(dLon / 2)
                         * Math.sin(dLon / 2);
+
 
         double c =
                 2 * Math.atan2(
@@ -371,8 +537,10 @@ public class MechanicService {
                         Math.sqrt(1 - a)
                 );
 
+
         return earthRadiusKm * c;
     }
+
 
     // =====================================================
     // INTERNAL RECORD
