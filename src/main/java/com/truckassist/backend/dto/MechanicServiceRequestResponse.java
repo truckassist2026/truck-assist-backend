@@ -26,6 +26,11 @@ public record MechanicServiceRequestResponse(
 
         OffsetDateTime createdAt,
 
-        double distanceKm
+        double distanceKm,
+
+        MechanicDriverResponse driver,
+
+        MechanicVehicleResponse vehicle
+
 ) {
 }

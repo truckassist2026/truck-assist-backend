@@ -1,7 +1,9 @@
 package com.truckassist.backend.service;
 
 import com.truckassist.backend.dto.CreateServiceRequestRequest;
+import com.truckassist.backend.dto.MechanicDriverResponse;
 import com.truckassist.backend.dto.MechanicServiceRequestResponse;
+import com.truckassist.backend.dto.MechanicVehicleResponse;
 import com.truckassist.backend.dto.RequestStatusHistoryResponse;
 import com.truckassist.backend.dto.ServiceRequestResponse;
 
@@ -29,10 +31,18 @@ import java.util.List;
 import java.util.UUID;
 
 
+// =========================================================
+// SERVICE
+// =========================================================
+
 @Service
 @Transactional
 public class ServiceRequestService {
 
+
+    // =====================================================
+    // REPOSITORIES
+    // =====================================================
 
     private final ServiceRequestRepository requestRepository;
 
@@ -44,6 +54,10 @@ public class ServiceRequestService {
 
     private final MechanicRepository mechanicRepository;
 
+
+    // =====================================================
+    // CONSTRUCTOR
+    // =====================================================
 
     public ServiceRequestService(
             ServiceRequestRepository requestRepository,
@@ -601,7 +615,6 @@ public class ServiceRequestService {
         return requests
                 .stream()
 
-
                 // =================================================
                 // REQUEST MUST HAVE LOCATION
                 // =================================================
@@ -610,7 +623,6 @@ public class ServiceRequestService {
                         request.getLatitude() != null &&
                         request.getLongitude() != null
                 )
-
 
                 // =================================================
                 // CALCULATE DISTANCE
@@ -639,7 +651,6 @@ public class ServiceRequestService {
                     );
                 })
 
-
                 // =================================================
                 // FILTER 10 KM
                 // =================================================
@@ -648,7 +659,6 @@ public class ServiceRequestService {
                         item.distanceKm()
                                 <= radiusKm
                 )
-
 
                 // =================================================
                 // NEAREST FIRST
@@ -661,7 +671,6 @@ public class ServiceRequestService {
                         )
                 )
 
-
                 // =================================================
                 // RESPONSE
                 // =================================================
@@ -672,37 +681,11 @@ public class ServiceRequestService {
                             item.request();
 
 
-                    return new MechanicServiceRequestResponse(
-
-                            request.getId(),
-
-                            request.getDriver()
-                                    .getId(),
-
-                            request.getVehicle()
-                                    .getId(),
-
-                            request.getCategory(),
-
-                            request.getDescription(),
-
-                            request.getLatitude(),
-
-                            request.getLongitude(),
-
-                            request.getAddress(),
-
-                            request.getStatus(),
-
-                            request.getCreatedAt(),
-
-                            Math.round(
-                                    item.distanceKm()
-                                            * 100.0
-                            ) / 100.0
+                    return buildMechanicRequestResponse(
+                            request,
+                            item.distanceKm()
                     );
                 })
-
 
                 .toList();
     }
@@ -710,13 +693,6 @@ public class ServiceRequestService {
 
     // =====================================================
     // GET SINGLE REQUEST FOR MECHANIC
-    // =====================================================
-    //
-    // This endpoint is used by:
-    //
-    // GET
-    // /api/v1/mechanics/requests/{requestId}
-    //
     // =====================================================
 
     @Transactional(readOnly = true)
@@ -847,33 +823,9 @@ public class ServiceRequestService {
         // RETURN REQUEST DETAILS
         // =================================================
 
-        return new MechanicServiceRequestResponse(
-
-                request.getId(),
-
-                request.getDriver()
-                        .getId(),
-
-                request.getVehicle()
-                        .getId(),
-
-                request.getCategory(),
-
-                request.getDescription(),
-
-                request.getLatitude(),
-
-                request.getLongitude(),
-
-                request.getAddress(),
-
-                request.getStatus(),
-
-                request.getCreatedAt(),
-
-                Math.round(
-                        distanceKm * 100.0
-                ) / 100.0
+        return buildMechanicRequestResponse(
+                request,
+                distanceKm
         );
     }
 
@@ -1096,6 +1048,229 @@ public class ServiceRequestService {
 
         return toResponse(
                 assignedRequest
+        );
+    }
+
+
+    // =====================================================
+    // BUILD MECHANIC REQUEST RESPONSE
+    // =====================================================
+    //
+    // This is now used by BOTH:
+    //
+    // GET /api/v1/mechanics/requests
+    //
+    // GET /api/v1/mechanics/requests/{requestId}
+    //
+    // =====================================================
+
+    private MechanicServiceRequestResponse
+    buildMechanicRequestResponse(
+            ServiceRequest request,
+            double distanceKm) {
+
+
+        if (request == null) {
+
+            throw new IllegalArgumentException(
+                    "Service request cannot be null"
+            );
+        }
+
+
+        Driver driver =
+                request.getDriver();
+
+
+        Vehicle vehicle =
+                request.getVehicle();
+
+
+        if (driver == null) {
+
+            throw new ResourceNotFoundException(
+                    "Driver information not found for service request"
+            );
+        }
+
+
+        if (vehicle == null) {
+
+            throw new ResourceNotFoundException(
+                    "Vehicle information not found for service request"
+            );
+        }
+
+
+        return new MechanicServiceRequestResponse(
+
+                // -----------------------------------------
+                // REQUEST
+                // -----------------------------------------
+
+                request.getId(),
+
+                // -----------------------------------------
+                // DRIVER ID
+                // -----------------------------------------
+
+                driver.getId(),
+
+                // -----------------------------------------
+                // VEHICLE ID
+                // -----------------------------------------
+
+                vehicle.getId(),
+
+                // -----------------------------------------
+                // CATEGORY
+                // -----------------------------------------
+
+                request.getCategory(),
+
+                // -----------------------------------------
+                // DESCRIPTION
+                // -----------------------------------------
+
+                request.getDescription(),
+
+                // -----------------------------------------
+                // LOCATION
+                // -----------------------------------------
+
+                request.getLatitude(),
+
+                request.getLongitude(),
+
+                request.getAddress(),
+
+                // -----------------------------------------
+                // STATUS
+                // -----------------------------------------
+
+                request.getStatus(),
+
+                // -----------------------------------------
+                // CREATED
+                // -----------------------------------------
+
+                request.getCreatedAt(),
+
+                // -----------------------------------------
+                // DISTANCE
+                // -----------------------------------------
+
+                Math.round(
+                        distanceKm * 100.0
+                ) / 100.0,
+
+                // -----------------------------------------
+                // DRIVER DETAILS
+                // -----------------------------------------
+
+                buildDriverResponse(
+                        driver
+                ),
+
+                // -----------------------------------------
+                // VEHICLE DETAILS
+                // -----------------------------------------
+
+                buildVehicleResponse(
+                        vehicle
+                )
+        );
+    }
+
+
+    // =====================================================
+    // BUILD DRIVER RESPONSE
+    // =====================================================
+
+    private MechanicDriverResponse
+    buildDriverResponse(
+            Driver driver) {
+
+
+        if (driver == null) {
+
+            return null;
+        }
+
+
+        /*
+         * Driver -> User
+         *
+         * The driver's personal information is stored
+         * against the User entity.
+         */
+
+        if (driver.getUser() == null) {
+
+            return new MechanicDriverResponse(
+
+                    driver.getId(),
+
+                    null,
+
+                    null,
+
+                    null,
+
+                    null
+            );
+        }
+
+
+        return new MechanicDriverResponse(
+
+                driver.getId(),
+
+                driver.getUser()
+                        .getName(),
+
+                driver.getUser()
+                        .getPhone(),
+
+                driver.getUser()
+                        .getEmail(),
+
+                driver.getUser()
+                        .getProfileImageUrl()
+        );
+    }
+
+
+    // =====================================================
+    // BUILD VEHICLE RESPONSE
+    // =====================================================
+
+    private MechanicVehicleResponse
+    buildVehicleResponse(
+            Vehicle vehicle) {
+
+
+        if (vehicle == null) {
+
+            return null;
+        }
+
+
+        return new MechanicVehicleResponse(
+
+                vehicle.getId(),
+
+                vehicle.getRegistrationNumber(),
+
+                vehicle.getManufacturer(),
+
+                vehicle.getModel(),
+
+                vehicle.getVehicleType(),
+
+                vehicle.getManufacturingYear(),
+
+                vehicle.getColor()
         );
     }
 
