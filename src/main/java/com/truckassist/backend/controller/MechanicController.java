@@ -4,13 +4,15 @@ import com.truckassist.backend.dto.MechanicAvailabilityRequest;
 import com.truckassist.backend.dto.MechanicLocationRequest;
 import com.truckassist.backend.dto.MechanicProfileRequest;
 import com.truckassist.backend.dto.MechanicResponse;
+import com.truckassist.backend.dto.MechanicServiceRequestResponse;
 import com.truckassist.backend.dto.NearbyMechanicResponse;
+import com.truckassist.backend.dto.ServiceRequestResponse;
 import com.truckassist.backend.service.MechanicService;
+import com.truckassist.backend.service.ServiceRequestService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.*;
-
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -21,11 +23,15 @@ import java.util.UUID;
 public class MechanicController {
 
     private final MechanicService service;
+    private final ServiceRequestService serviceRequestService;
 
     public MechanicController(
-            MechanicService service) {
+            MechanicService service,
+            ServiceRequestService serviceRequestService) {
 
         this.service = service;
+        this.serviceRequestService =
+                serviceRequestService;
     }
 
     // =====================================================
@@ -44,7 +50,9 @@ public class MechanicController {
                         authentication.getName()
                 );
 
-        return service.getMe(userId);
+        return service.getMe(
+                userId
+        );
     }
 
     // =====================================================
@@ -140,5 +148,54 @@ public class MechanicController {
                 longitude,
                 radiusKm
         );
+    }
+
+    // =====================================================
+    // AVAILABLE SERVICE REQUESTS
+    // =====================================================
+
+    @GetMapping("/requests")
+    @Operation(
+            summary =
+                    "Get service requests available for current mechanic"
+    )
+    public List<MechanicServiceRequestResponse> getRequests(
+            Authentication authentication) {
+
+        UUID userId =
+                UUID.fromString(
+                        authentication.getName()
+                );
+
+        return serviceRequestService
+                .getAvailableRequests(
+                        userId
+                );
+    }
+
+    // =====================================================
+    // ACCEPT SERVICE REQUEST
+    // =====================================================
+
+    @PatchMapping(
+            "/requests/{requestId}/accept"
+    )
+    @Operation(
+            summary = "Accept a service request"
+    )
+    public ServiceRequestResponse acceptRequest(
+            Authentication authentication,
+            @PathVariable UUID requestId) {
+
+        UUID userId =
+                UUID.fromString(
+                        authentication.getName()
+                );
+
+        return serviceRequestService
+                .acceptRequest(
+                        userId,
+                        requestId
+                );
     }
 }

@@ -1,7 +1,11 @@
 package com.truckassist.backend.repository;
 
 import com.truckassist.backend.entity.ServiceRequest;
+import jakarta.transaction.Transactional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -10,17 +14,76 @@ import java.util.UUID;
 public interface ServiceRequestRepository
         extends JpaRepository<ServiceRequest, UUID> {
 
+    // =====================================================
+    // DRIVER REQUESTS
+    // =====================================================
+
     List<ServiceRequest> findByDriverIdOrderByCreatedAtDesc(
             UUID driverId
     );
 
-    Optional<ServiceRequest> findFirstByDriverIdAndStatusInOrderByCreatedAtDesc(
+    Optional<ServiceRequest>
+    findFirstByDriverIdAndStatusInOrderByCreatedAtDesc(
             UUID driverId,
             List<String> statuses
     );
 
-    List<ServiceRequest> findByDriverIdAndStatusOrderByCreatedAtDesc(
+    List<ServiceRequest>
+    findByDriverIdAndStatusOrderByCreatedAtDesc(
             UUID driverId,
             String status
+    );
+
+    // =====================================================
+    // MECHANIC - AVAILABLE REQUESTS
+    // =====================================================
+
+    List<ServiceRequest> findByStatusOrderByCreatedAtAsc(
+            String status
+    );
+
+    // =====================================================
+    // MECHANIC - ACTIVE REQUEST CHECK
+    // =====================================================
+
+    boolean existsByAssignedMechanicIdAndStatusIn(
+            UUID mechanicId,
+            List<String> statuses
+    );
+
+    // =====================================================
+    // ATOMIC MECHANIC ASSIGNMENT
+    //
+    // SEARCHING -> ASSIGNED
+    //
+    // Only the first mechanic who successfully updates
+    // the row can accept the request.
+    //
+    // clearAutomatically = true:
+    // Clears Hibernate persistence context after the
+    // bulk update so a following findById() reads the
+    // latest database values.
+    //
+    // flushAutomatically = true:
+    // Flushes pending entity changes before the update.
+    // =====================================================
+
+    @Modifying(
+            clearAutomatically = true,
+            flushAutomatically = true
+    )
+    @Transactional
+    @Query("""
+        UPDATE ServiceRequest r
+           SET r.assignedMechanicId = :mechanicId,
+               r.status = 'ASSIGNED',
+               r.updatedAt = CURRENT_TIMESTAMP
+         WHERE r.id = :requestId
+           AND r.status = 'SEARCHING'
+           AND r.assignedMechanicId IS NULL
+    """)
+    int assignMechanic(
+            @Param("requestId") UUID requestId,
+            @Param("mechanicId") UUID mechanicId
     );
 }

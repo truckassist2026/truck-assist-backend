@@ -1,21 +1,26 @@
 package com.truckassist.backend.service;
 
 import com.truckassist.backend.dto.CreateServiceRequestRequest;
+import com.truckassist.backend.dto.MechanicServiceRequestResponse;
 import com.truckassist.backend.dto.RequestStatusHistoryResponse;
 import com.truckassist.backend.dto.ServiceRequestResponse;
 import com.truckassist.backend.entity.Driver;
+import com.truckassist.backend.entity.Mechanic;
 import com.truckassist.backend.entity.RequestStatusHistory;
 import com.truckassist.backend.entity.ServiceRequest;
 import com.truckassist.backend.entity.Vehicle;
 import com.truckassist.backend.exception.ResourceNotFoundException;
 import com.truckassist.backend.repository.DriverRepository;
+import com.truckassist.backend.repository.MechanicRepository;
 import com.truckassist.backend.repository.RequestStatusHistoryRepository;
 import com.truckassist.backend.repository.ServiceRequestRepository;
 import com.truckassist.backend.repository.VehicleRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,17 +32,20 @@ public class ServiceRequestService {
     private final RequestStatusHistoryRepository historyRepository;
     private final DriverRepository driverRepository;
     private final VehicleRepository vehicleRepository;
+    private final MechanicRepository mechanicRepository;
 
     public ServiceRequestService(
             ServiceRequestRepository requestRepository,
             RequestStatusHistoryRepository historyRepository,
             DriverRepository driverRepository,
-            VehicleRepository vehicleRepository) {
+            VehicleRepository vehicleRepository,
+            MechanicRepository mechanicRepository) {
 
         this.requestRepository = requestRepository;
         this.historyRepository = historyRepository;
         this.driverRepository = driverRepository;
         this.vehicleRepository = vehicleRepository;
+        this.mechanicRepository = mechanicRepository;
     }
 
     // =====================================================
@@ -100,12 +108,15 @@ public class ServiceRequestService {
         serviceRequest.setDescription(
                 request.description()
         );
+
         serviceRequest.setLatitude(
                 request.latitude()
         );
+
         serviceRequest.setLongitude(
                 request.longitude()
         );
+
         serviceRequest.setAddress(
                 request.address()
         );
@@ -338,6 +349,7 @@ public class ServiceRequestService {
         }
 
         request.setStatus("CANCELLED");
+
         request.setCancelledAt(
                 OffsetDateTime.now()
         );
@@ -353,6 +365,382 @@ public class ServiceRequestService {
         );
 
         return toResponse(saved);
+    }
+
+    // =====================================================
+    // GET AVAILABLE REQUESTS FOR MECHANIC
+    // =====================================================
+
+    @Transactional(readOnly = true)
+    public List<MechanicServiceRequestResponse>
+    getAvailableRequests(
+            UUID userId) {
+
+        Mechanic mechanic =
+                mechanicRepository
+                        .findByUserId(userId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Mechanic profile not found"
+                                )
+                        );
+
+        // -------------------------------------------------
+        // Mechanic must be online
+        // -------------------------------------------------
+
+        if (!mechanic.isAvailable()) {
+            return List.of();
+        }
+
+        // -------------------------------------------------
+        // Mechanic must have a current location
+        // -------------------------------------------------
+
+        if (mechanic.getLatitude() == null ||
+                mechanic.getLongitude() == null) {
+
+            return List.of();
+        }
+
+        // -------------------------------------------------
+        // Mechanic should not receive new requests while
+        // already handling another request
+        // -------------------------------------------------
+
+        List<String> activeStatuses =
+                List.of(
+                        "ASSIGNED",
+                        "MECHANIC_EN_ROUTE",
+                        "ARRIVED",
+                        "IN_PROGRESS",
+                        "PAYMENT_PENDING"
+                );
+
+        boolean hasActiveRequest =
+                requestRepository
+                        .existsByAssignedMechanicIdAndStatusIn(
+                                mechanic.getId(),
+                                activeStatuses
+                        );
+
+        if (hasActiveRequest) {
+            return List.of();
+        }
+
+        // -------------------------------------------------
+        // Get all SEARCHING requests
+        // -------------------------------------------------
+
+        List<ServiceRequest> requests =
+                requestRepository
+                        .findByStatusOrderByCreatedAtAsc(
+                                "SEARCHING"
+                        );
+
+        final double mechanicLatitude =
+                mechanic.getLatitude()
+                        .doubleValue();
+
+        final double mechanicLongitude =
+                mechanic.getLongitude()
+                        .doubleValue();
+
+        // Same initial radius used by the existing
+        // nearby-mechanic functionality.
+        final double radiusKm = 10.0;
+
+        return requests
+                .stream()
+
+                // -------------------------------------------------
+                // Request must have location
+                // -------------------------------------------------
+
+                .filter(request ->
+                        request.getLatitude() != null &&
+                        request.getLongitude() != null
+                )
+
+                // -------------------------------------------------
+                // Calculate distance
+                // -------------------------------------------------
+
+                .map(request -> {
+
+                    double distance =
+                            calculateDistanceKm(
+                                    mechanicLatitude,
+                                    mechanicLongitude,
+                                    request.getLatitude()
+                                            .doubleValue(),
+                                    request.getLongitude()
+                                            .doubleValue()
+                            );
+
+                    return new RequestWithDistance(
+                            request,
+                            distance
+                    );
+                })
+
+                // -------------------------------------------------
+                // Radius
+                // -------------------------------------------------
+
+                .filter(item ->
+                        item.distanceKm() <= radiusKm
+                )
+
+                // -------------------------------------------------
+                // Nearest first
+                // -------------------------------------------------
+
+                .sorted(
+                        Comparator.comparingDouble(
+                                RequestWithDistance
+                                        ::distanceKm
+                        )
+                )
+
+                // -------------------------------------------------
+                // Response
+                // -------------------------------------------------
+
+                .map(item -> {
+
+                    ServiceRequest request =
+                            item.request();
+
+                    return new MechanicServiceRequestResponse(
+
+                            request.getId(),
+
+                            request.getDriver().getId(),
+
+                            request.getVehicle().getId(),
+
+                            request.getCategory(),
+
+                            request.getDescription(),
+
+                            request.getLatitude(),
+
+                            request.getLongitude(),
+
+                            request.getAddress(),
+
+                            request.getStatus(),
+
+                            request.getCreatedAt(),
+
+                            Math.round(
+                                    item.distanceKm()
+                                            * 100.0
+                            ) / 100.0
+                    );
+                })
+
+                .toList();
+    }
+
+    // =====================================================
+    // MECHANIC ACCEPT REQUEST
+    // =====================================================
+
+    public ServiceRequestResponse acceptRequest(
+            UUID userId,
+            UUID requestId) {
+
+        // =================================================
+        // GET MECHANIC
+        // =================================================
+
+        Mechanic mechanic =
+                mechanicRepository
+                        .findByUserId(userId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Mechanic profile not found"
+                                )
+                        );
+
+        // =================================================
+        // MECHANIC MUST BE AVAILABLE
+        // =================================================
+
+        if (!mechanic.isAvailable()) {
+
+            throw new IllegalStateException(
+                    "Mechanic is not available"
+            );
+        }
+
+        // =================================================
+        // MECHANIC MUST HAVE LOCATION
+        // =================================================
+
+        if (mechanic.getLatitude() == null ||
+                mechanic.getLongitude() == null) {
+
+            throw new IllegalStateException(
+                    "Mechanic location is required"
+            );
+        }
+
+        // =================================================
+        // MECHANIC MUST NOT HAVE ANOTHER ACTIVE REQUEST
+        // =================================================
+
+        List<String> activeStatuses =
+                List.of(
+                        "ASSIGNED",
+                        "MECHANIC_EN_ROUTE",
+                        "ARRIVED",
+                        "IN_PROGRESS",
+                        "PAYMENT_PENDING"
+                );
+
+        boolean hasActiveRequest =
+                requestRepository
+                        .existsByAssignedMechanicIdAndStatusIn(
+                                mechanic.getId(),
+                                activeStatuses
+                        );
+
+        if (hasActiveRequest) {
+
+            throw new IllegalStateException(
+                    "Mechanic already has an active service request"
+            );
+        }
+
+        // =================================================
+        // VERIFY REQUEST EXISTS
+        // =================================================
+
+        ServiceRequest request =
+                requestRepository
+                        .findById(requestId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Service request not found"
+                                )
+                        );
+
+        // =================================================
+        // REQUEST MUST BE SEARCHING
+        // =================================================
+
+        if (!"SEARCHING".equals(
+                request.getStatus()
+        )) {
+
+            throw new IllegalStateException(
+                    "Service request is no longer available"
+            );
+        }
+
+        // =================================================
+        // REQUEST MUST NOT ALREADY BE ASSIGNED
+        // =================================================
+
+        if (request.getAssignedMechanicId() != null) {
+
+            throw new IllegalStateException(
+                    "Service request is already assigned"
+            );
+        }
+
+        // =================================================
+        // OPTIONAL DISTANCE VALIDATION
+        //
+        // Mechanic should only accept a request that is
+        // within the same 10 KM matching radius.
+        // =================================================
+
+        if (request.getLatitude() != null &&
+                request.getLongitude() != null) {
+
+            double distanceKm =
+                    calculateDistanceKm(
+                            mechanic.getLatitude()
+                                    .doubleValue(),
+                            mechanic.getLongitude()
+                                    .doubleValue(),
+                            request.getLatitude()
+                                    .doubleValue(),
+                            request.getLongitude()
+                                    .doubleValue()
+                    );
+
+            if (distanceKm > 10.0) {
+
+                throw new IllegalStateException(
+                        "Service request is outside the service radius"
+                );
+            }
+        }
+
+        // =================================================
+        // ATOMIC ASSIGNMENT
+        //
+        // Only one mechanic can successfully change:
+        //
+        // SEARCHING -> ASSIGNED
+        //
+        // If another mechanic already accepted the request,
+        // this update returns 0.
+        // =================================================
+
+        int updatedRows =
+                requestRepository.assignMechanic(
+                        requestId,
+                        mechanic.getId()
+                );
+
+        // =================================================
+        // ANOTHER MECHANIC MAY HAVE ACCEPTED IT
+        // =================================================
+
+        if (updatedRows == 0) {
+
+            throw new IllegalStateException(
+                    "Service request is no longer available"
+            );
+        }
+
+        // =================================================
+        // RELOAD UPDATED REQUEST
+        // =================================================
+
+        ServiceRequest assignedRequest =
+                requestRepository
+                        .findById(requestId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Service request not found"
+                                )
+                        );
+
+        // =================================================
+        // STATUS HISTORY
+        // =================================================
+
+        addHistory(
+                assignedRequest,
+                "ASSIGNED",
+                userId,
+                "Service request accepted by mechanic"
+        );
+
+        // =================================================
+        // RETURN
+        // =================================================
+
+        return toResponse(
+                assignedRequest
+        );
     }
 
     // =====================================================
@@ -445,20 +833,93 @@ public class ServiceRequestService {
             ServiceRequest request) {
 
         return new ServiceRequestResponse(
+
                 request.getId(),
+
                 request.getDriver().getId(),
+
                 request.getVehicle().getId(),
+
                 request.getCategory(),
+
                 request.getDescription(),
+
                 request.getLatitude(),
+
                 request.getLongitude(),
+
                 request.getAddress(),
+
                 request.getStatus(),
+
                 request.getAssignedMechanicId(),
+
                 request.getCreatedAt(),
+
                 request.getUpdatedAt(),
+
                 request.getCompletedAt(),
+
                 request.getCancelledAt()
         );
+    }
+
+    // =====================================================
+    // DISTANCE CALCULATION
+    // =====================================================
+
+    private double calculateDistanceKm(
+            double lat1,
+            double lon1,
+            double lat2,
+            double lon2) {
+
+        final double earthRadiusKm =
+                6371.0;
+
+        double dLat =
+                Math.toRadians(
+                        lat2 - lat1
+                );
+
+        double dLon =
+                Math.toRadians(
+                        lon2 - lon1
+                );
+
+        double a =
+                Math.sin(dLat / 2)
+                        * Math.sin(dLat / 2)
+
+                        +
+
+                        Math.cos(
+                                Math.toRadians(lat1)
+                        )
+
+                        * Math.cos(
+                                Math.toRadians(lat2)
+                        )
+
+                        * Math.sin(dLon / 2)
+                        * Math.sin(dLon / 2);
+
+        double c =
+                2 * Math.atan2(
+                        Math.sqrt(a),
+                        Math.sqrt(1 - a)
+                );
+
+        return earthRadiusKm * c;
+    }
+
+    // =====================================================
+    // INTERNAL REQUEST + DISTANCE
+    // =====================================================
+
+    private record RequestWithDistance(
+            ServiceRequest request,
+            double distanceKm
+    ) {
     }
 }
