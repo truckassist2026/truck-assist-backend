@@ -690,144 +690,339 @@ public class ServiceRequestService {
                 .toList();
     }
 
+// =====================================================
+// GET SINGLE REQUEST FOR MECHANIC
+// =====================================================
 
-    // =====================================================
-    // GET SINGLE REQUEST FOR MECHANIC
-    // =====================================================
+@Transactional(readOnly = true)
+public MechanicServiceRequestResponse
+getRequestByIdForMechanic(
+        UUID userId,
+        UUID requestId) {
 
-    @Transactional(readOnly = true)
-    public MechanicServiceRequestResponse
-    getRequestByIdForMechanic(
-            UUID userId,
-            UUID requestId) {
+    System.out.println(
+            "=============================================="
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Loading request"
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Mechanic User ID: "
+                    + userId
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Request ID: "
+                    + requestId
+    );
 
 
-        // =================================================
-        // GET CURRENT MECHANIC
-        // =================================================
+    // =================================================
+    // GET CURRENT MECHANIC
+    // =================================================
 
-        Mechanic mechanic =
-                mechanicRepository
-                        .findByUserId(userId)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Mechanic profile not found"
-                                )
+    Mechanic mechanic =
+            mechanicRepository
+                    .findByUserId(userId)
+                    .orElseThrow(() -> {
+
+                        System.out.println(
+                                "[MECHANIC REQUEST DETAILS] "
+                                        + "Mechanic profile not found"
                         );
 
-
-        // =================================================
-        // MECHANIC MUST BE ONLINE
-        // =================================================
-
-        if (!mechanic.isAvailable()) {
-
-            throw new IllegalStateException(
-                    "Mechanic is not available"
-            );
-        }
-
-
-        // =================================================
-        // MECHANIC MUST HAVE LOCATION
-        // =================================================
-
-        if (
-                mechanic.getLatitude() == null ||
-                mechanic.getLongitude() == null
-        ) {
-
-            throw new IllegalStateException(
-                    "Mechanic location is required"
-            );
-        }
-
-
-        // =================================================
-        // GET REQUEST
-        // =================================================
-
-        ServiceRequest request =
-                requestRepository
-                        .findById(requestId)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Service request not found"
-                                )
+                        return new ResourceNotFoundException(
+                                "Mechanic profile not found"
                         );
+                    });
 
 
-        // =================================================
-        // REQUEST MUST STILL BE SEARCHING
-        // =================================================
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Mechanic ID: "
+                    + mechanic.getId()
+    );
 
-        if (!"SEARCHING".equals(
-                request.getStatus()
-        )) {
-
-            throw new IllegalStateException(
-                    "Service request is no longer available"
-            );
-        }
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Available: "
+                    + mechanic.isAvailable()
+    );
 
 
-        // =================================================
-        // REQUEST MUST HAVE LOCATION
-        // =================================================
+    // =================================================
+    // MECHANIC MUST BE ONLINE
+    // =================================================
 
-        if (
-                request.getLatitude() == null ||
-                request.getLongitude() == null
-        ) {
+    if (!mechanic.isAvailable()) {
 
-            throw new IllegalStateException(
-                    "Service request location is unavailable"
-            );
-        }
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Mechanic is offline"
+        );
 
-
-        // =================================================
-        // CALCULATE DISTANCE
-        // =================================================
-
-        double distanceKm =
-                calculateDistanceKm(
-
-                        mechanic.getLatitude()
-                                .doubleValue(),
-
-                        mechanic.getLongitude()
-                                .doubleValue(),
-
-                        request.getLatitude()
-                                .doubleValue(),
-
-                        request.getLongitude()
-                                .doubleValue()
-                );
-
-
-        // =================================================
-        // 10 KM SERVICE RADIUS
-        // =================================================
-
-        if (distanceKm > 10.0) {
-
-            throw new IllegalStateException(
-                    "Service request is outside the service radius"
-            );
-        }
-
-
-        // =================================================
-        // RETURN REQUEST DETAILS
-        // =================================================
-
-        return buildMechanicRequestResponse(
-                request,
-                distanceKm
+        throw new IllegalStateException(
+                "Mechanic is not available"
         );
     }
+
+
+    // =================================================
+    // MECHANIC MUST HAVE LOCATION
+    // =================================================
+
+    if (
+            mechanic.getLatitude() == null ||
+            mechanic.getLongitude() == null
+    ) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Mechanic location missing"
+        );
+
+        throw new IllegalStateException(
+                "Mechanic location is required"
+        );
+    }
+
+
+    // =================================================
+    // GET REQUEST
+    // =================================================
+
+    ServiceRequest request =
+            requestRepository
+                    .findById(requestId)
+                    .orElseThrow(() -> {
+
+                        System.out.println(
+                                "[MECHANIC REQUEST DETAILS] "
+                                        + "Request not found"
+                        );
+
+                        return new ResourceNotFoundException(
+                                "Service request not found"
+                        );
+                    });
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Request status: "
+                    + request.getStatus()
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Assigned mechanic ID: "
+                    + request.getAssignedMechanicId()
+    );
+
+
+    // =================================================
+    // REQUEST ACCESS
+    // =================================================
+    //
+    // SEARCHING
+    // ----------
+    // Any available mechanic can view.
+    //
+    // ASSIGNED
+    // --------
+    // Only the assigned mechanic can view.
+    //
+    // Other statuses
+    // ---------------
+    // Not available through this endpoint.
+    //
+    // =================================================
+
+    String status =
+            request.getStatus();
+
+
+    boolean isSearching =
+            "SEARCHING".equalsIgnoreCase(
+                    status
+            );
+
+
+    boolean isAssignedToCurrentMechanic =
+            "ASSIGNED".equalsIgnoreCase(
+                    status
+            )
+            &&
+            request.getAssignedMechanicId() != null
+            &&
+            request.getAssignedMechanicId()
+                    .equals(
+                            mechanic.getId()
+                    );
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] isSearching: "
+                    + isSearching
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] "
+                    + "isAssignedToCurrentMechanic: "
+                    + isAssignedToCurrentMechanic
+    );
+
+
+    // =================================================
+    // SEARCHING
+    // =================================================
+
+    if (isSearching) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "SEARCHING request - access allowed"
+        );
+    }
+
+
+    // =================================================
+    // ASSIGNED TO CURRENT MECHANIC
+    // =================================================
+
+    else if (isAssignedToCurrentMechanic) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "ASSIGNED request belongs to current "
+                        + "mechanic - access allowed"
+        );
+    }
+
+
+    // =================================================
+    // NOT AVAILABLE
+    // =================================================
+
+    else {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] ACCESS DENIED"
+        );
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] Status: "
+                        + status
+        );
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Assigned mechanic: "
+                        + request.getAssignedMechanicId()
+        );
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Current mechanic: "
+                        + mechanic.getId()
+        );
+
+        throw new IllegalStateException(
+                "Service request is no longer available"
+        );
+    }
+
+
+    // =================================================
+    // REQUEST MUST HAVE LOCATION
+    // =================================================
+
+    if (
+            request.getLatitude() == null ||
+            request.getLongitude() == null
+    ) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Request location missing"
+        );
+
+        throw new IllegalStateException(
+                "Service request location is unavailable"
+        );
+    }
+
+
+    // =================================================
+    // CALCULATE DISTANCE
+    // =================================================
+
+    double distanceKm =
+            calculateDistanceKm(
+
+                    mechanic.getLatitude()
+                            .doubleValue(),
+
+                    mechanic.getLongitude()
+                            .doubleValue(),
+
+                    request.getLatitude()
+                            .doubleValue(),
+
+                    request.getLongitude()
+                            .doubleValue()
+            );
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Distance: "
+                    + distanceKm
+                    + " km"
+    );
+
+
+    // =================================================
+    // SERVICE RADIUS
+    // =================================================
+
+    if (distanceKm > 10.0) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Request outside 10 KM radius"
+        );
+
+        throw new IllegalStateException(
+                "Service request is outside the service radius"
+        );
+    }
+
+
+    // =================================================
+    // BUILD RESPONSE
+    // =================================================
+
+    MechanicServiceRequestResponse response =
+            buildMechanicRequestResponse(
+                    request,
+                    distanceKm
+            );
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Response:"
+    );
+
+    System.out.println(
+            response
+    );
+
+    System.out.println(
+            "=============================================="
+    );
+
+
+    return response;
+}
+   
 
 
     // =====================================================
