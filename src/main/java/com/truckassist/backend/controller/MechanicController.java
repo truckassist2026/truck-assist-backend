@@ -9,8 +9,11 @@ import com.truckassist.backend.dto.NearbyMechanicResponse;
 import com.truckassist.backend.dto.ServiceRequestResponse;
 import com.truckassist.backend.service.MechanicService;
 import com.truckassist.backend.service.ServiceRequestService;
+
 import io.swagger.v3.oas.annotations.Operation;
+
 import jakarta.validation.Valid;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,21 +21,28 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
+
 @RestController
 @RequestMapping("/api/v1/mechanics")
 public class MechanicController {
 
+
     private final MechanicService service;
+
     private final ServiceRequestService serviceRequestService;
+
 
     public MechanicController(
             MechanicService service,
             ServiceRequestService serviceRequestService) {
 
-        this.service = service;
+        this.service =
+                service;
+
         this.serviceRequestService =
                 serviceRequestService;
     }
+
 
     // =====================================================
     // MY PROFILE
@@ -40,7 +50,8 @@ public class MechanicController {
 
     @GetMapping("/me")
     @Operation(
-            summary = "Get current mechanic profile"
+            summary =
+                    "Get current mechanic profile"
     )
     public MechanicResponse getMe(
             Authentication authentication) {
@@ -55,17 +66,20 @@ public class MechanicController {
         );
     }
 
+
     // =====================================================
     // CREATE / UPDATE PROFILE
     // =====================================================
 
     @PutMapping("/me")
     @Operation(
-            summary = "Create or update mechanic profile"
+            summary =
+                    "Create or update mechanic profile"
     )
     public MechanicResponse updateMe(
             Authentication authentication,
-            @Valid @RequestBody
+            @Valid
+            @RequestBody
             MechanicProfileRequest request) {
 
         UUID userId =
@@ -79,17 +93,20 @@ public class MechanicController {
         );
     }
 
+
     // =====================================================
     // AVAILABILITY
     // =====================================================
 
     @PatchMapping("/me/availability")
     @Operation(
-            summary = "Update mechanic availability"
+            summary =
+                    "Update mechanic availability"
     )
     public MechanicResponse updateAvailability(
             Authentication authentication,
-            @Valid @RequestBody
+            @Valid
+            @RequestBody
             MechanicAvailabilityRequest request) {
 
         UUID userId =
@@ -103,17 +120,20 @@ public class MechanicController {
         );
     }
 
+
     // =====================================================
-    // LOCATION
+    // CURRENT LOCATION
     // =====================================================
 
     @PatchMapping("/me/location")
     @Operation(
-            summary = "Update mechanic current location"
+            summary =
+                    "Update mechanic current location"
     )
     public MechanicResponse updateLocation(
             Authentication authentication,
-            @Valid @RequestBody
+            @Valid
+            @RequestBody
             MechanicLocationRequest request) {
 
         UUID userId =
@@ -127,17 +147,23 @@ public class MechanicController {
         );
     }
 
+
     // =====================================================
     // NEARBY MECHANICS
     // =====================================================
 
     @GetMapping("/nearby")
     @Operation(
-            summary = "Find nearby available mechanics"
+            summary =
+                    "Find nearby available mechanics"
     )
     public List<NearbyMechanicResponse> getNearby(
-            @RequestParam BigDecimal latitude,
-            @RequestParam BigDecimal longitude,
+            @RequestParam
+            BigDecimal latitude,
+
+            @RequestParam
+            BigDecimal longitude,
+
             @RequestParam(
                     defaultValue = "10"
             )
@@ -149,6 +175,7 @@ public class MechanicController {
                 radiusKm
         );
     }
+
 
     // =====================================================
     // AVAILABLE SERVICE REQUESTS
@@ -173,6 +200,37 @@ public class MechanicController {
                 );
     }
 
+
+    // =====================================================
+    // GET SINGLE SERVICE REQUEST
+    // =====================================================
+
+    @GetMapping(
+            "/requests/{requestId}"
+    )
+    @Operation(
+            summary =
+                    "Get service request details"
+    )
+    public MechanicServiceRequestResponse getRequestById(
+            Authentication authentication,
+
+            @PathVariable
+            UUID requestId) {
+
+        UUID userId =
+                UUID.fromString(
+                        authentication.getName()
+                );
+
+        return serviceRequestService
+                .getRequestByIdForMechanic(
+                        userId,
+                        requestId
+                );
+    }
+
+
     // =====================================================
     // ACCEPT SERVICE REQUEST
     // =====================================================
@@ -181,11 +239,14 @@ public class MechanicController {
             "/requests/{requestId}/accept"
     )
     @Operation(
-            summary = "Accept a service request"
+            summary =
+                    "Accept a service request"
     )
     public ServiceRequestResponse acceptRequest(
             Authentication authentication,
-            @PathVariable UUID requestId) {
+
+            @PathVariable
+            UUID requestId) {
 
         UUID userId =
                 UUID.fromString(
