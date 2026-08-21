@@ -34,17 +34,18 @@ public class PaymentController {
     // =====================================================
 
     @PostMapping(
-            "/requests/{requestId}/initiate"
-    )
-    @Operation(
-            summary = "Create service payment"
-    )
-    public PaymentResponse initiatePayment(
-            Authentication authentication,
-            @PathVariable UUID requestId,
-            @Valid @RequestBody
-            PaymentInitiateRequest request) {
-                 System.out.println(
+        "/requests/{requestId}/initiate"
+)
+@Operation(
+        summary = "Create service payment"
+)
+public PaymentResponse initiatePayment(
+        Authentication authentication,
+        @PathVariable UUID requestId,
+        @Valid @RequestBody
+        PaymentInitiateRequest request) {
+
+    System.out.println(
             "================================================="
     );
 
@@ -68,31 +69,27 @@ public class PaymentController {
     );
 
     System.out.println(
-            "[PAYMENT CONTROLLER] Amount: " +
-            request.getAmount()
-    );
-
-    System.out.println(
-            "[PAYMENT CONTROLLER] Notes: " +
-            request.getNotes()
+            "[PAYMENT CONTROLLER] Request object: " +
+            request
     );
 
     System.out.println(
             "================================================="
     );
 
-        UUID userId =
-                UUID.fromString(
-                        authentication.getName()
-                );
+
+    UUID userId =
+            UUID.fromString(
+                    authentication.getName()
+            );
 
 
-        return service.initiatePayment(
-                userId,
-                requestId,
-                request
-        );
-    }
+    return service.initiatePayment(
+            userId,
+            requestId,
+            request
+    );
+}
 
 
     // =====================================================
