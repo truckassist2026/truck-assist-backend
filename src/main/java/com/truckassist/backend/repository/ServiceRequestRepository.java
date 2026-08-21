@@ -13,10 +13,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-
 public interface ServiceRequestRepository
         extends JpaRepository<ServiceRequest, UUID> {
-
 
     // =====================================================
     // DRIVER REQUESTS
@@ -27,13 +25,11 @@ public interface ServiceRequestRepository
             UUID driverId
     );
 
-
     Optional<ServiceRequest>
     findFirstByDriverIdAndStatusInOrderByCreatedAtDesc(
             UUID driverId,
             List<String> statuses
     );
-
 
     List<ServiceRequest>
     findByDriverIdAndStatusOrderByCreatedAtDesc(
@@ -41,9 +37,8 @@ public interface ServiceRequestRepository
             String status
     );
 
-
     // =====================================================
-    // MECHANIC - AVAILABLE REQUESTS
+    // MECHANIC - SEARCHING REQUESTS
     // =====================================================
 
     List<ServiceRequest>
@@ -51,6 +46,17 @@ public interface ServiceRequestRepository
             String status
     );
 
+    // =====================================================
+    // MECHANIC - ASSIGNED REQUESTS
+    //
+    // Keeps the current mechanic's accepted request visible
+    // after leaving the Active Request screen.
+    // =====================================================
+
+    List<ServiceRequest>
+    findByAssignedMechanicIdOrderByUpdatedAtDesc(
+            UUID mechanicId
+    );
 
     // =====================================================
     // MECHANIC - ACTIVE REQUEST CHECK
@@ -62,14 +68,12 @@ public interface ServiceRequestRepository
             List<String> statuses
     );
 
-
     // =====================================================
     // ATOMIC MECHANIC ASSIGNMENT
     //
     // SEARCHING -> ASSIGNED
     //
-    // Only one mechanic can successfully update
-    // the request.
+    // Only one mechanic can successfully update.
     // =====================================================
 
     @Modifying(

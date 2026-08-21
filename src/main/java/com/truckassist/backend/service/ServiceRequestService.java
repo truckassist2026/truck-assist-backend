@@ -93,6 +93,7 @@ public class ServiceRequestService {
             UUID userId,
             CreateServiceRequestRequest request) {
 
+
         // =================================================
         // GET DRIVER
         // =================================================
@@ -113,7 +114,9 @@ public class ServiceRequestService {
 
         Vehicle vehicle =
                 vehicleRepository
-                        .findById(request.vehicleId())
+                        .findById(
+                                request.vehicleId()
+                        )
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
                                         "Vehicle not found"
@@ -139,7 +142,9 @@ public class ServiceRequestService {
         // DRIVER ACTIVE REQUEST CHECK
         // =================================================
 
-        if (hasActiveRequest(driver.getId())) {
+        if (hasActiveRequest(
+                driver.getId()
+        )) {
 
             throw new IllegalStateException(
                     "You already have an active service request"
@@ -156,7 +161,10 @@ public class ServiceRequestService {
                         .trim()
                         .toUpperCase();
 
-        validateCategory(category);
+
+        validateCategory(
+                category
+        );
 
 
         // =================================================
@@ -166,27 +174,41 @@ public class ServiceRequestService {
         ServiceRequest serviceRequest =
                 new ServiceRequest();
 
-        serviceRequest.setDriver(driver);
 
-        serviceRequest.setVehicle(vehicle);
+        serviceRequest.setDriver(
+                driver
+        );
 
-        serviceRequest.setCategory(category);
+
+        serviceRequest.setVehicle(
+                vehicle
+        );
+
+
+        serviceRequest.setCategory(
+                category
+        );
+
 
         serviceRequest.setDescription(
                 request.description()
         );
 
+
         serviceRequest.setLatitude(
                 request.latitude()
         );
+
 
         serviceRequest.setLongitude(
                 request.longitude()
         );
 
+
         serviceRequest.setAddress(
                 request.address()
         );
+
 
         serviceRequest.setStatus(
                 "SEARCHING"
@@ -223,7 +245,9 @@ public class ServiceRequestService {
         );
 
 
-        return toResponse(saved);
+        return toResponse(
+                saved
+        );
     }
 
 
@@ -235,6 +259,7 @@ public class ServiceRequestService {
     public List<ServiceRequestResponse> getMyRequests(
             UUID userId) {
 
+
         Driver driver =
                 driverRepository
                         .findByUserId(userId)
@@ -243,6 +268,7 @@ public class ServiceRequestService {
                                         "Driver profile not found"
                                 )
                         );
+
 
         return requestRepository
                 .findByDriverIdOrderByCreatedAtDesc(
@@ -261,6 +287,7 @@ public class ServiceRequestService {
     @Transactional(readOnly = true)
     public ServiceRequestResponse getActiveRequest(
             UUID userId) {
+
 
         Driver driver =
                 driverRepository
@@ -297,7 +324,9 @@ public class ServiceRequestService {
                         );
 
 
-        return toResponse(request);
+        return toResponse(
+                request
+        );
     }
 
 
@@ -309,6 +338,7 @@ public class ServiceRequestService {
     public ServiceRequestResponse getById(
             UUID userId,
             UUID requestId) {
+
 
         Driver driver =
                 driverRepository
@@ -336,7 +366,9 @@ public class ServiceRequestService {
         );
 
 
-        return toResponse(request);
+        return toResponse(
+                request
+        );
     }
 
 
@@ -348,6 +380,7 @@ public class ServiceRequestService {
     public List<RequestStatusHistoryResponse> getHistory(
             UUID userId,
             UUID requestId) {
+
 
         Driver driver =
                 driverRepository
@@ -409,6 +442,7 @@ public class ServiceRequestService {
             UUID userId,
             UUID requestId) {
 
+
         Driver driver =
                 driverRepository
                         .findByUserId(userId)
@@ -450,6 +484,7 @@ public class ServiceRequestService {
                 "CANCELLED"
         );
 
+
         request.setCancelledAt(
                 OffsetDateTime.now()
         );
@@ -469,12 +504,25 @@ public class ServiceRequestService {
         );
 
 
-        return toResponse(saved);
+        return toResponse(
+                saved
+        );
     }
 
 
     // =====================================================
-    // GET AVAILABLE REQUESTS FOR MECHANIC
+    // GET REQUESTS FOR CURRENT MECHANIC
+    // =====================================================
+    //
+    // Returns:
+    // 1. SEARCHING requests available for acceptance.
+    // 2. Active requests already assigned to this mechanic.
+    //
+    // Assigned requests remain visible after the mechanic
+    // leaves the Active Request screen and returns here.
+    //
+    // SEARCHING requests use the 10 KM availability radius.
+    // Already-assigned requests do NOT use the search radius.
     // =====================================================
 
     @Transactional(readOnly = true)
@@ -491,33 +539,10 @@ public class ServiceRequestService {
                                 )
                         );
 
+        UUID mechanicId =
+                mechanic.getId();
 
-        // =================================================
-        // MECHANIC MUST BE ONLINE
-        // =================================================
-
-        if (!mechanic.isAvailable()) {
-            return List.of();
-        }
-
-
-        // =================================================
-        // MECHANIC MUST HAVE LOCATION
-        // =================================================
-
-        if (
-                mechanic.getLatitude() == null ||
-                mechanic.getLongitude() == null
-        ) {
-            return List.of();
-        }
-
-
-        // =================================================
-        // MECHANIC ACTIVE REQUEST CHECK
-        // =================================================
-
-        List<String> activeStatuses =
+        List<String> mechanicActiveStatuses =
                 List.of(
                         "ASSIGNED",
                         "MECHANIC_EN_ROUTE",
@@ -526,486 +551,490 @@ public class ServiceRequestService {
                         "PAYMENT_PENDING"
                 );
 
-
-        boolean hasActiveRequest =
-                requestRepository
-                        .existsByAssignedMechanicIdAndStatusIn(
-                                mechanic.getId(),
-                                activeStatuses
-                        );
-
-
-        if (hasActiveRequest) {
-            return List.of();
-        }
-
+        List<MechanicServiceRequestResponse> result =
+                new java.util.ArrayList<>();
 
         // =================================================
-        // GET SEARCHING REQUESTS
+        // 1. CURRENT MECHANIC'S ASSIGNED ACTIVE REQUESTS
+        // =================================================
+        //
+        // IMPORTANT:
+        // Do this BEFORE checking mechanic availability.
+        // An accepted job belongs to this mechanic and must
+        // remain visible even if the mechanic temporarily
+        // goes offline or leaves the Active screen.
         // =================================================
 
-        List<ServiceRequest> requests =
+        List<ServiceRequest> assignedRequests =
                 requestRepository
-                        .findByStatusOrderByCreatedAtAsc(
-                                "SEARCHING"
+                        .findByAssignedMechanicIdOrderByUpdatedAtDesc(
+                                mechanicId
                         );
 
+        final boolean hasMechanicLocation =
+                mechanic.getLatitude() != null &&
+                mechanic.getLongitude() != null;
 
         final double mechanicLatitude =
-                mechanic.getLatitude()
-                        .doubleValue();
+                hasMechanicLocation
+                        ? mechanic.getLatitude().doubleValue()
+                        : 0.0;
 
         final double mechanicLongitude =
-                mechanic.getLongitude()
-                        .doubleValue();
+                hasMechanicLocation
+                        ? mechanic.getLongitude().doubleValue()
+                        : 0.0;
 
+        for (ServiceRequest request : assignedRequests) {
+
+            String status =
+                    request.getStatus();
+
+            if (!mechanicActiveStatuses.contains(status)) {
+                continue;
+            }
+
+            double distanceKm = 0.0;
+
+            if (
+                    hasMechanicLocation &&
+                    request.getLatitude() != null &&
+                    request.getLongitude() != null
+            ) {
+                distanceKm =
+                        calculateDistanceKm(
+                                mechanicLatitude,
+                                mechanicLongitude,
+                                request.getLatitude().doubleValue(),
+                                request.getLongitude().doubleValue()
+                        );
+            }
+
+            result.add(
+                    buildMechanicRequestResponse(
+                            request,
+                            distanceKm
+                    )
+            );
+        }
 
         // =================================================
-        // SERVICE RADIUS
+        // 2. SEARCHING REQUESTS AVAILABLE FOR ACCEPTANCE
+        // =================================================
+        //
+        // If the mechanic already owns an active job, do not
+        // show additional SEARCHING requests.
         // =================================================
 
-        final double radiusKm = 10.0;
+        if (
+                result.isEmpty() &&
+                mechanic.isAvailable() &&
+                hasMechanicLocation
+        ) {
 
-
-        return requests
-                .stream()
-
-                // =================================================
-                // REQUEST MUST HAVE LOCATION
-                // =================================================
-
-                .filter(request ->
-                        request.getLatitude() != null &&
-                        request.getLongitude() != null
-                )
-
-                // =================================================
-                // CALCULATE DISTANCE
-                // =================================================
-
-                .map(request -> {
-
-                    double distance =
-                            calculateDistanceKm(
-
-                                    mechanicLatitude,
-
-                                    mechanicLongitude,
-
-                                    request.getLatitude()
-                                            .doubleValue(),
-
-                                    request.getLongitude()
-                                            .doubleValue()
+            List<ServiceRequest> searchingRequests =
+                    requestRepository
+                            .findByStatusOrderByCreatedAtAsc(
+                                    "SEARCHING"
                             );
 
+            final double radiusKm = 10.0;
 
-                    return new RequestWithDistance(
-                            request,
-                            distance
-                    );
-                })
+            searchingRequests
+                    .stream()
+                    .filter(request ->
+                            request.getLatitude() != null &&
+                            request.getLongitude() != null
+                    )
+                    .map(request -> {
 
-                // =================================================
-                // FILTER 10 KM
-                // =================================================
+                        double distance =
+                                calculateDistanceKm(
+                                        mechanicLatitude,
+                                        mechanicLongitude,
+                                        request.getLatitude().doubleValue(),
+                                        request.getLongitude().doubleValue()
+                                );
 
-                .filter(item ->
-                        item.distanceKm() <= radiusKm
-                )
+                        return new RequestWithDistance(
+                                request,
+                                distance
+                        );
+                    })
+                    .filter(item ->
+                            item.distanceKm() <= radiusKm
+                    )
+                    .sorted(
+                            Comparator.comparingDouble(
+                                    RequestWithDistance::distanceKm
+                            )
+                    )
+                    .map(item ->
+                            buildMechanicRequestResponse(
+                                    item.request(),
+                                    item.distanceKm()
+                            )
+                    )
+                    .forEach(result::add);
+        }
 
-                // =================================================
-                // NEAREST FIRST
-                // =================================================
+        System.out.println(
+                "[MECHANIC REQUESTS] Mechanic ID: "
+                        + mechanicId
+        );
 
-                .sorted(
-                        Comparator.comparingDouble(
-                                RequestWithDistance
-                                        ::distanceKm
-                        )
-                )
+        System.out.println(
+                "[MECHANIC REQUESTS] Returning "
+                        + result.size()
+                        + " request(s)"
+        );
 
-                // =================================================
-                // RESPONSE
-                // =================================================
+        return result;
+    }
 
-                .map(item -> {
+// =====================================================
+// GET SINGLE REQUEST FOR MECHANIC
+// =====================================================
 
-                    ServiceRequest request =
-                            item.request();
+@Transactional(readOnly = true)
+public MechanicServiceRequestResponse
+getRequestByIdForMechanic(
+        UUID userId,
+        UUID requestId) {
 
-                    return buildMechanicRequestResponse(
-                            request,
-                            item.distanceKm()
-                    );
-                })
+    System.out.println(
+            "=============================================="
+    );
 
-                .toList();
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Loading request"
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Mechanic User ID: "
+                    + userId
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Request ID: "
+                    + requestId
+    );
+
+
+    // =================================================
+    // GET CURRENT MECHANIC
+    // =================================================
+
+    Mechanic mechanic =
+            mechanicRepository
+                    .findByUserId(userId)
+                    .orElseThrow(() -> {
+
+                        System.out.println(
+                                "[MECHANIC REQUEST DETAILS] "
+                                        + "Mechanic profile not found"
+                        );
+
+                        return new ResourceNotFoundException(
+                                "Mechanic profile not found"
+                        );
+                    });
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Mechanic ID: "
+                    + mechanic.getId()
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Available: "
+                    + mechanic.isAvailable()
+    );
+
+
+    // =================================================
+    // MECHANIC MUST BE ONLINE
+    // =================================================
+
+    if (!mechanic.isAvailable()) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Mechanic is offline"
+        );
+
+        throw new IllegalStateException(
+                "Mechanic is not available"
+        );
     }
 
 
-    // =====================================================
-    // GET SINGLE REQUEST FOR MECHANIC
-    // =====================================================
+    // =================================================
+    // MECHANIC MUST HAVE LOCATION
+    // =================================================
 
-    @Transactional(readOnly = true)
-    public MechanicServiceRequestResponse
-    getRequestByIdForMechanic(
-            UUID userId,
-            UUID requestId) {
+    if (
+            mechanic.getLatitude() == null ||
+            mechanic.getLongitude() == null
+    ) {
 
         System.out.println(
-                "=============================================="
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Mechanic location missing"
+        );
+
+        throw new IllegalStateException(
+                "Mechanic location is required"
+        );
+    }
+
+
+    // =================================================
+    // GET REQUEST
+    // =================================================
+
+    ServiceRequest request =
+            requestRepository
+                    .findById(requestId)
+                    .orElseThrow(() -> {
+
+                        System.out.println(
+                                "[MECHANIC REQUEST DETAILS] "
+                                        + "Request not found"
+                        );
+
+                        return new ResourceNotFoundException(
+                                "Service request not found"
+                        );
+                    });
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Request status: "
+                    + request.getStatus()
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Assigned mechanic ID: "
+                    + request.getAssignedMechanicId()
+    );
+
+
+    // =================================================
+    // REQUEST ACCESS
+    // =================================================
+    //
+    // SEARCHING
+    // ----------
+    // Any available mechanic can view.
+    //
+    // ASSIGNED
+    // --------
+    // Only the assigned mechanic can view.
+    //
+    // Other statuses
+    // ---------------
+    // Not available through this endpoint.
+    //
+    // =================================================
+
+    String status =
+            request.getStatus();
+
+
+    boolean isSearching =
+            "SEARCHING".equalsIgnoreCase(
+                    status
+            );
+
+
+    List<String> mechanicAssignedStatuses =
+            List.of(
+                    "ASSIGNED",
+                    "MECHANIC_EN_ROUTE",
+                    "ARRIVED",
+                    "IN_PROGRESS",
+                    "PAYMENT_PENDING"
+            );
+
+
+    boolean isAssignedToCurrentMechanic =
+            mechanicAssignedStatuses.contains(
+                    status.toUpperCase()
+            )
+            &&
+            request.getAssignedMechanicId() != null
+            &&
+            request.getAssignedMechanicId()
+                    .equals(
+                            mechanic.getId()
+                    );
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] isSearching: "
+                    + isSearching
+    );
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] "
+                    + "isAssignedToCurrentMechanic: "
+                    + isAssignedToCurrentMechanic
+    );
+
+
+    // =================================================
+    // SEARCHING
+    // =================================================
+
+    if (isSearching) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "SEARCHING request - access allowed"
+        );
+    }
+
+
+    // =================================================
+    // ASSIGNED TO CURRENT MECHANIC
+    // =================================================
+
+    else if (isAssignedToCurrentMechanic) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "ASSIGNED request belongs to current "
+                        + "mechanic - access allowed"
+        );
+    }
+
+
+    // =================================================
+    // NOT AVAILABLE
+    // =================================================
+
+    else {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] ACCESS DENIED"
         );
 
         System.out.println(
-                "[MECHANIC REQUEST DETAILS] Loading request"
-        );
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Mechanic User ID: "
-                        + userId
-        );
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Request ID: "
-                        + requestId
-        );
-
-
-        // =================================================
-        // GET CURRENT MECHANIC
-        // =================================================
-
-        Mechanic mechanic =
-                mechanicRepository
-                        .findByUserId(userId)
-                        .orElseThrow(() -> {
-
-                            System.out.println(
-                                    "[MECHANIC REQUEST DETAILS] "
-                                            + "Mechanic profile not found"
-                            );
-
-                            return new ResourceNotFoundException(
-                                    "Mechanic profile not found"
-                            );
-                        });
-
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Mechanic ID: "
-                        + mechanic.getId()
-        );
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Available: "
-                        + mechanic.isAvailable()
-        );
-
-
-        // =================================================
-        // MECHANIC MUST BE ONLINE
-        // =================================================
-
-        /*
-         * IMPORTANT:
-         *
-         * A mechanic may still need to view a completed
-         * service after payment.
-         *
-         * Therefore availability is NOT used to block
-         * an already assigned/completed request.
-         *
-         * We keep the existing check for new/searching
-         * requests, but an assigned mechanic can continue
-         * viewing his own job.
-         */
-
-
-        // =================================================
-        // MECHANIC MUST HAVE LOCATION
-        // =================================================
-
-        /*
-         * Location is required for distance calculation.
-         *
-         * For completed requests, if the mechanic's current
-         * location is unavailable, we don't want to prevent
-         * the mechanic from viewing his completed job.
-         *
-         * Therefore location validation happens only when
-         * distance calculation is required.
-         */
-
-
-        // =================================================
-        // GET REQUEST
-        // =================================================
-
-        ServiceRequest request =
-                requestRepository
-                        .findById(requestId)
-                        .orElseThrow(() -> {
-
-                            System.out.println(
-                                    "[MECHANIC REQUEST DETAILS] "
-                                            + "Request not found"
-                            );
-
-                            return new ResourceNotFoundException(
-                                    "Service request not found"
-                            );
-                        });
-
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Request status: "
-                        + request.getStatus()
-        );
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Assigned mechanic ID: "
-                        + request.getAssignedMechanicId()
-        );
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Current mechanic ID: "
-                        + mechanic.getId()
-        );
-
-
-        // =================================================
-        // REQUEST ACCESS
-        // =================================================
-        //
-        // SEARCHING
-        // ----------
-        // Any available mechanic can view.
-        //
-        // ASSIGNED / COMPLETED
-        // -------------------
-        // The assigned mechanic can view the request.
-        //
-        // IMPORTANT:
-        // The assignment check is deliberately independent
-        // of request status.
-        //
-        // This allows:
-        //
-        // ASSIGNED
-        // MECHANIC_EN_ROUTE
-        // ARRIVED
-        // IN_PROGRESS
-        // PAYMENT_PENDING
-        // COMPLETED
-        //
-        // to remain accessible to the assigned mechanic.
-        // =================================================
-
-        String status =
-                request.getStatus();
-
-
-        boolean isSearching =
-                "SEARCHING".equalsIgnoreCase(
-                        status
-                );
-
-
-        boolean isAssignedToCurrentMechanic =
-                request.getAssignedMechanicId() != null
-                        &&
-                        mechanic.getId() != null
-                        &&
-                        request.getAssignedMechanicId()
-                                .equals(
-                                        mechanic.getId()
-                                );
-
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] isSearching: "
-                        + isSearching
+                "[MECHANIC REQUEST DETAILS] Status: "
+                        + status
         );
 
         System.out.println(
                 "[MECHANIC REQUEST DETAILS] "
-                        + "isAssignedToCurrentMechanic: "
-                        + isAssignedToCurrentMechanic
-        );
-
-
-        // =================================================
-        // SEARCHING
-        // =================================================
-
-        if (isSearching) {
-
-            if (!mechanic.isAvailable()) {
-
-                System.out.println(
-                        "[MECHANIC REQUEST DETAILS] "
-                                + "SEARCHING request but mechanic "
-                                + "is offline"
-                );
-
-                throw new IllegalStateException(
-                        "Mechanic is not available"
-                );
-            }
-
-            System.out.println(
-                    "[MECHANIC REQUEST DETAILS] "
-                            + "SEARCHING request - access allowed"
-            );
-        }
-
-
-        // =================================================
-        // ASSIGNED TO CURRENT MECHANIC
-        // =================================================
-
-        else if (isAssignedToCurrentMechanic) {
-
-            System.out.println(
-                    "[MECHANIC REQUEST DETAILS] "
-                            + "Request belongs to current mechanic "
-                            + "- access allowed"
-            );
-        }
-
-
-        // =================================================
-        // NOT AVAILABLE
-        // =================================================
-
-        else {
-
-            System.out.println(
-                    "[MECHANIC REQUEST DETAILS] ACCESS DENIED"
-            );
-
-            System.out.println(
-                    "[MECHANIC REQUEST DETAILS] Status: "
-                            + status
-            );
-
-            System.out.println(
-                    "[MECHANIC REQUEST DETAILS] "
-                            + "Assigned mechanic: "
-                            + request.getAssignedMechanicId()
-            );
-
-            System.out.println(
-                    "[MECHANIC REQUEST DETAILS] "
-                            + "Current mechanic: "
-                            + mechanic.getId()
-            );
-
-            throw new IllegalStateException(
-                    "Service request is not assigned to this mechanic"
-            );
-        }
-
-
-        // =================================================
-        // DISTANCE CALCULATION
-        // =================================================
-
-        double distanceKm = 0.0;
-
-
-        if (
-                mechanic.getLatitude() != null &&
-                mechanic.getLongitude() != null &&
-                request.getLatitude() != null &&
-                request.getLongitude() != null
-        ) {
-
-            distanceKm =
-                    calculateDistanceKm(
-
-                            mechanic.getLatitude()
-                                    .doubleValue(),
-
-                            mechanic.getLongitude()
-                                    .doubleValue(),
-
-                            request.getLatitude()
-                                    .doubleValue(),
-
-                            request.getLongitude()
-                                    .doubleValue()
-                    );
-        }
-
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Distance: "
-                        + distanceKm
-                        + " km"
-        );
-
-
-        // =================================================
-        // SERVICE RADIUS
-        // =================================================
-        //
-        // IMPORTANT:
-        //
-        // Do NOT reject an already assigned mechanic's
-        // completed request just because the mechanic's
-        // current GPS location moved outside the original
-        // service radius.
-        //
-        // The request was already assigned to this mechanic.
-        //
-        // Only SEARCHING requests need the 10 KM restriction.
-        // =================================================
-
-        if (
-                isSearching &&
-                distanceKm > 10.0
-        ) {
-
-            System.out.println(
-                    "[MECHANIC REQUEST DETAILS] "
-                            + "SEARCHING request outside 10 KM radius"
-            );
-
-            throw new IllegalStateException(
-                    "Service request is outside the service radius"
-            );
-        }
-
-
-        // =================================================
-        // BUILD RESPONSE
-        // =================================================
-
-        MechanicServiceRequestResponse response =
-                buildMechanicRequestResponse(
-                        request,
-                        distanceKm
-                );
-
-
-        System.out.println(
-                "[MECHANIC REQUEST DETAILS] Response:"
+                        + "Assigned mechanic: "
+                        + request.getAssignedMechanicId()
         );
 
         System.out.println(
-                response
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Current mechanic: "
+                        + mechanic.getId()
         );
 
-        System.out.println(
-                "=============================================="
+        throw new IllegalStateException(
+                "Service request is no longer available"
         );
-
-
-        return response;
     }
+
+
+    // =================================================
+    // REQUEST MUST HAVE LOCATION
+    // =================================================
+
+    if (
+            request.getLatitude() == null ||
+            request.getLongitude() == null
+    ) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Request location missing"
+        );
+
+        throw new IllegalStateException(
+                "Service request location is unavailable"
+        );
+    }
+
+
+    // =================================================
+    // CALCULATE DISTANCE
+    // =================================================
+
+    double distanceKm =
+            calculateDistanceKm(
+
+                    mechanic.getLatitude()
+                            .doubleValue(),
+
+                    mechanic.getLongitude()
+                            .doubleValue(),
+
+                    request.getLatitude()
+                            .doubleValue(),
+
+                    request.getLongitude()
+                            .doubleValue()
+            );
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Distance: "
+                    + distanceKm
+                    + " km"
+    );
+
+
+    // =================================================
+    // SERVICE RADIUS
+    // =================================================
+
+    if (distanceKm > 10.0) {
+
+        System.out.println(
+                "[MECHANIC REQUEST DETAILS] "
+                        + "Request outside 10 KM radius"
+        );
+
+        throw new IllegalStateException(
+                "Service request is outside the service radius"
+        );
+    }
+
+
+    // =================================================
+    // BUILD RESPONSE
+    // =================================================
+
+    MechanicServiceRequestResponse response =
+            buildMechanicRequestResponse(
+                    request,
+                    distanceKm
+            );
+
+
+    System.out.println(
+            "[MECHANIC REQUEST DETAILS] Response:"
+    );
+
+    System.out.println(
+            response
+    );
+
+    System.out.println(
+            "=============================================="
+    );
+
+
+    return response;
+}
+   
 
 
     // =====================================================
@@ -1230,6 +1259,7 @@ public class ServiceRequestService {
     }
 
 
+
     // =====================================================
     // MECHANIC UPDATE REQUEST STATUS
     // =====================================================
@@ -1246,23 +1276,12 @@ public class ServiceRequestService {
     //     ↓
     // PAYMENT_PENDING
     //
-    // PAYMENT_PENDING
-    //     ↓
-    // DRIVER PAYMENT
-    //     ↓
-    // COMPLETED
-    //
-    // COMPLETED is intentionally NOT updated by the
-    // mechanic status endpoint.
-    //
-    // PaymentService owns that final transition.
     // =====================================================
 
     public ServiceRequestResponse updateMechanicStatus(
             UUID userId,
             UUID requestId,
             String newStatus) {
-
 
         // =================================================
         // GET CURRENT MECHANIC
@@ -1277,18 +1296,15 @@ public class ServiceRequestService {
                                 )
                         );
 
-
         // =================================================
         // MECHANIC MUST BE AVAILABLE
         // =================================================
 
         if (!mechanic.isAvailable()) {
-
             throw new IllegalStateException(
                     "Mechanic is not available"
             );
         }
-
 
         // =================================================
         // GET REQUEST
@@ -1303,48 +1319,37 @@ public class ServiceRequestService {
                                 )
                         );
 
-
         // =================================================
         // REQUEST MUST BELONG TO CURRENT MECHANIC
         // =================================================
 
         if (
                 request.getAssignedMechanicId() == null ||
-                mechanic.getId() == null ||
                 !request.getAssignedMechanicId()
                         .equals(mechanic.getId())
         ) {
-
             throw new IllegalStateException(
                     "Service request is not assigned to this mechanic"
             );
         }
 
-
         // =================================================
         // NORMALIZE STATUS
         // =================================================
 
-        if (
-                newStatus == null ||
-                newStatus.trim().isEmpty()
-        ) {
-
+        if (newStatus == null || newStatus.trim().isEmpty()) {
             throw new IllegalArgumentException(
                     "Status is required"
             );
         }
-
 
         String status =
                 newStatus
                         .trim()
                         .toUpperCase();
 
-
         String currentStatus =
                 request.getStatus();
-
 
         // =================================================
         // VALIDATE STATUS TRANSITION
@@ -1352,30 +1357,18 @@ public class ServiceRequestService {
 
         boolean validTransition =
                 ("ASSIGNED".equals(currentStatus)
-                        &&
-                        "MECHANIC_EN_ROUTE".equals(status))
-
+                        && "MECHANIC_EN_ROUTE".equals(status))
                 ||
-
                 ("MECHANIC_EN_ROUTE".equals(currentStatus)
-                        &&
-                        "ARRIVED".equals(status))
-
+                        && "ARRIVED".equals(status))
                 ||
-
                 ("ARRIVED".equals(currentStatus)
-                        &&
-                        "IN_PROGRESS".equals(status))
-
+                        && "IN_PROGRESS".equals(status))
                 ||
-
                 ("IN_PROGRESS".equals(currentStatus)
-                        &&
-                        "PAYMENT_PENDING".equals(status));
-
+                        && "PAYMENT_PENDING".equals(status));
 
         if (!validTransition) {
-
             throw new IllegalStateException(
                     "Invalid status transition: "
                             + currentStatus
@@ -1384,17 +1377,14 @@ public class ServiceRequestService {
             );
         }
 
-
         // =================================================
         // UPDATE STATUS
         // =================================================
 
         request.setStatus(status);
 
-
         ServiceRequest saved =
                 requestRepository.save(request);
-
 
         // =================================================
         // STATUS HISTORY
@@ -1407,7 +1397,6 @@ public class ServiceRequestService {
                 "Status updated by mechanic"
         );
 
-
         // =================================================
         // RETURN
         // =================================================
@@ -1418,6 +1407,14 @@ public class ServiceRequestService {
 
     // =====================================================
     // BUILD MECHANIC REQUEST RESPONSE
+    // =====================================================
+    //
+    // This is now used by BOTH:
+    //
+    // GET /api/v1/mechanics/requests
+    //
+    // GET /api/v1/mechanics/requests/{requestId}
+    //
     // =====================================================
 
     private MechanicServiceRequestResponse
@@ -1667,6 +1664,7 @@ public class ServiceRequestService {
     private boolean isCancellable(
             String status) {
 
+
         return status.equals("CREATED")
                 || status.equals("SEARCHING")
                 || status.equals("ASSIGNED");
@@ -1691,7 +1689,9 @@ public class ServiceRequestService {
                 );
 
 
-        if (!allowed.contains(category)) {
+        if (!allowed.contains(
+                category
+        )) {
 
             throw new IllegalArgumentException(
                     "Invalid service category: "
@@ -1766,123 +1766,123 @@ public class ServiceRequestService {
     // HELPER - SERVICE REQUEST RESPONSE
     // =====================================================
 
-    private ServiceRequestResponse toResponse(
-            ServiceRequest request) {
+   private ServiceRequestResponse toResponse(
+        ServiceRequest request) {
+
+    VehicleSummaryResponse vehicle =
+            new VehicleSummaryResponse(
+
+                    request.getVehicle().getId(),
+
+                    request.getVehicle()
+                            .getRegistrationNumber(),
+
+                    request.getVehicle()
+                            .getManufacturer(),
+
+                    request.getVehicle()
+                            .getModel(),
+
+                    request.getVehicle()
+                            .getVehicleType(),
+
+                    request.getVehicle()
+                            .getManufacturingYear(),
+
+                    request.getVehicle()
+                            .getColor()
+            );
 
 
-        VehicleSummaryResponse vehicle =
-                new VehicleSummaryResponse(
-
-                        request.getVehicle().getId(),
-
-                        request.getVehicle()
-                                .getRegistrationNumber(),
-
-                        request.getVehicle()
-                                .getManufacturer(),
-
-                        request.getVehicle()
-                                .getModel(),
-
-                        request.getVehicle()
-                                .getVehicleType(),
-
-                        request.getVehicle()
-                                .getManufacturingYear(),
-
-                        request.getVehicle()
-                                .getColor()
-                );
+    MechanicSummaryResponse mechanic =
+            null;
 
 
-        MechanicSummaryResponse mechanic =
-                null;
+    if (
+            request.getAssignedMechanicId()
+                    != null
+    ) {
 
+        mechanic =
+                mechanicRepository
+                        .findById(
+                                request.getAssignedMechanicId()
+                        )
+                        .map(m -> {
 
-        if (
-                request.getAssignedMechanicId()
-                        != null
-        ) {
+                            return new MechanicSummaryResponse(
 
-            mechanic =
-                    mechanicRepository
-                            .findById(
-                                    request.getAssignedMechanicId()
-                            )
-                            .map(m -> {
+                                    m.getId(),
 
-                                return new MechanicSummaryResponse(
+                                    m.getUser()
+                                            .getName(),
 
-                                        m.getId(),
+                                    m.getUser()
+                                            .getPhone(),
 
-                                        m.getUser()
-                                                .getName(),
+                                    m.getUser()
+                                            .getProfileImageUrl(),
 
-                                        m.getUser()
-                                                .getPhone(),
+                                    m.getExperienceYears(),
 
-                                        m.getUser()
-                                                .getProfileImageUrl(),
+                                    m.getWorkshopName(),
 
-                                        m.getExperienceYears(),
+                                    m.getWorkshopAddress(),
 
-                                        m.getWorkshopName(),
+                                    m.getRating(),
 
-                                        m.getWorkshopAddress(),
+                                    m.getTotalJobs(),
 
-                                        m.getRating(),
+                                    m.getLatitude(),
 
-                                        m.getTotalJobs(),
+                                    m.getLongitude(),
 
-                                        m.getLatitude(),
+                                    m.getLastLocationAt()
+                            );
 
-                                        m.getLongitude(),
-
-                                        m.getLastLocationAt()
-                                );
-
-                            })
-                            .orElse(null);
-        }
-
-
-        return new ServiceRequestResponse(
-
-                request.getId(),
-
-                request.getDriver()
-                        .getId(),
-
-                request.getVehicle()
-                        .getId(),
-
-                request.getCategory(),
-
-                request.getDescription(),
-
-                request.getLatitude(),
-
-                request.getLongitude(),
-
-                request.getAddress(),
-
-                request.getStatus(),
-
-                request.getAssignedMechanicId(),
-
-                request.getCreatedAt(),
-
-                request.getUpdatedAt(),
-
-                request.getCompletedAt(),
-
-                request.getCancelledAt(),
-
-                vehicle,
-
-                mechanic
-        );
+                        })
+                        .orElse(null);
     }
+
+
+    return new ServiceRequestResponse(
+
+            request.getId(),
+
+            request.getDriver()
+                    .getId(),
+
+            request.getVehicle()
+                    .getId(),
+
+            request.getCategory(),
+
+            request.getDescription(),
+
+            request.getLatitude(),
+
+            request.getLongitude(),
+
+            request.getAddress(),
+
+            request.getStatus(),
+
+            request.getAssignedMechanicId(),
+
+            request.getCreatedAt(),
+
+            request.getUpdatedAt(),
+
+            request.getCompletedAt(),
+
+            request.getCancelledAt(),
+
+            vehicle,
+
+            mechanic
+    );
+}
+
 
 
     // =====================================================
@@ -1916,7 +1916,7 @@ public class ServiceRequestService {
                 Math.sin(
                         dLat / 2
                 )
-                *
+                        *
                 Math.sin(
                         dLat / 2
                 )
