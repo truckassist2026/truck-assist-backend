@@ -308,6 +308,7 @@ public class ServiceRequestService {
                         "ARRIVED",
                         "IN_PROGRESS",
                         "PAYMENT_PENDING"
+                        "COMPLETED"
                 );
 
 
