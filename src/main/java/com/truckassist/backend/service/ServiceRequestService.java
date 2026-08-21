@@ -854,7 +854,8 @@ getRequestByIdForMechanic(
                     "MECHANIC_EN_ROUTE",
                     "ARRIVED",
                     "IN_PROGRESS",
-                    "PAYMENT_PENDING"
+                    "PAYMENT_PENDING",
+                    "COMPLETED"
             );
 
 

@@ -16,14 +16,8 @@ import java.util.UUID;
 public interface ServiceRequestRepository
         extends JpaRepository<ServiceRequest, UUID> {
 
-    // =====================================================
-    // DRIVER REQUESTS
-    // =====================================================
-
     List<ServiceRequest>
-    findByDriverIdOrderByCreatedAtDesc(
-            UUID driverId
-    );
+    findByDriverIdOrderByCreatedAtDesc(UUID driverId);
 
     Optional<ServiceRequest>
     findFirstByDriverIdAndStatusInOrderByCreatedAtDesc(
@@ -37,45 +31,25 @@ public interface ServiceRequestRepository
             String status
     );
 
-    // =====================================================
-    // MECHANIC - SEARCHING REQUESTS
-    // =====================================================
-
+    // Searching requests available for acceptance.
     List<ServiceRequest>
-    findByStatusOrderByCreatedAtAsc(
-            String status
-    );
+    findByStatusOrderByCreatedAtAsc(String status);
 
-    // =====================================================
-    // MECHANIC - ASSIGNED REQUESTS
-    //
-    // Keeps the current mechanic's accepted request visible
-    // after leaving the Active Request screen.
-    // =====================================================
-
+    // Requests already assigned to a particular mechanic.
+    // Used to keep accepted jobs visible after leaving the screen.
     List<ServiceRequest>
     findByAssignedMechanicIdOrderByUpdatedAtDesc(
             UUID mechanicId
     );
 
-    // =====================================================
-    // MECHANIC - ACTIVE REQUEST CHECK
-    // =====================================================
-
+    // COMPLETED is intentionally excluded from active-job checking.
     boolean
     existsByAssignedMechanicIdAndStatusIn(
             UUID mechanicId,
             List<String> statuses
     );
 
-    // =====================================================
-    // ATOMIC MECHANIC ASSIGNMENT
-    //
-    // SEARCHING -> ASSIGNED
-    //
-    // Only one mechanic can successfully update.
-    // =====================================================
-
+    // Atomic SEARCHING -> ASSIGNED assignment.
     @Modifying(
             clearAutomatically = true,
             flushAutomatically = true
@@ -91,10 +65,7 @@ public interface ServiceRequestRepository
            AND r.assignedMechanicId IS NULL
     """)
     int assignMechanic(
-            @Param("requestId")
-            UUID requestId,
-
-            @Param("mechanicId")
-            UUID mechanicId
+            @Param("requestId") UUID requestId,
+            @Param("mechanicId") UUID mechanicId
     );
 }
