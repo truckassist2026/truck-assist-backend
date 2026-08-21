@@ -6,6 +6,8 @@ import com.truckassist.backend.dto.MechanicServiceRequestResponse;
 import com.truckassist.backend.dto.MechanicVehicleResponse;
 import com.truckassist.backend.dto.RequestStatusHistoryResponse;
 import com.truckassist.backend.dto.ServiceRequestResponse;
+import com.truckassist.backend.dto.MechanicSummaryResponse;
+import com.truckassist.backend.dto.VehicleSummaryResponse;
 
 import com.truckassist.backend.entity.Driver;
 import com.truckassist.backend.entity.Mechanic;
@@ -1609,42 +1611,149 @@ getRequestByIdForMechanic(
     // =====================================================
 
     private ServiceRequestResponse toResponse(
-            ServiceRequest request) {
+        ServiceRequest request) {
 
+    // =====================================================
+    // VEHICLE DETAILS
+    // =====================================================
 
-        return new ServiceRequestResponse(
+    Vehicle vehicle =
+            request.getVehicle();
 
-                request.getId(),
+    VehicleSummaryResponse vehicleResponse =
+            null;
 
-                request.getDriver()
-                        .getId(),
+    if (vehicle != null) {
 
-                request.getVehicle()
-                        .getId(),
+        vehicleResponse =
+                new VehicleSummaryResponse(
 
-                request.getCategory(),
+                        vehicle.getId(),
 
-                request.getDescription(),
+                        vehicle.getRegistrationNumber(),
 
-                request.getLatitude(),
+                        vehicle.getManufacturer(),
 
-                request.getLongitude(),
+                        vehicle.getModel(),
 
-                request.getAddress(),
+                        vehicle.getVehicleType(),
 
-                request.getStatus(),
+                        vehicle.getManufacturingYear(),
 
-                request.getAssignedMechanicId(),
-
-                request.getCreatedAt(),
-
-                request.getUpdatedAt(),
-
-                request.getCompletedAt(),
-
-                request.getCancelledAt()
-        );
+                        vehicle.getColor()
+                );
     }
+
+
+    // =====================================================
+    // MECHANIC DETAILS
+    // =====================================================
+
+    MechanicSummaryResponse mechanicResponse =
+            null;
+
+    if (request.getAssignedMechanicId() != null) {
+
+        Mechanic mechanic =
+                mechanicRepository
+                        .findById(
+                                request.getAssignedMechanicId()
+                        )
+                        .orElse(null);
+
+        if (mechanic != null) {
+
+            String name = null;
+            String phone = null;
+            String profileImageUrl = null;
+
+            if (mechanic.getUser() != null) {
+
+                name =
+                        mechanic.getUser()
+                                .getName();
+
+                phone =
+                        mechanic.getUser()
+                                .getPhone();
+
+                profileImageUrl =
+                        mechanic.getUser()
+                                .getProfileImageUrl();
+            }
+
+            mechanicResponse =
+                    new MechanicSummaryResponse(
+
+                            mechanic.getId(),
+
+                            name,
+
+                            phone,
+
+                            profileImageUrl,
+
+                            mechanic.getExperienceYears(),
+
+                            mechanic.getWorkshopName(),
+
+                            mechanic.getWorkshopAddress(),
+
+                            mechanic.getRating(),
+
+                            mechanic.getTotalJobs(),
+
+                            mechanic.getLatitude(),
+
+                            mechanic.getLongitude(),
+
+                            mechanic.getLastLocationAt()
+                    );
+        }
+    }
+
+
+    // =====================================================
+    // SERVICE REQUEST RESPONSE
+    // =====================================================
+
+    return new ServiceRequestResponse(
+
+            request.getId(),
+
+            request.getDriver().getId(),
+
+            vehicle != null
+                    ? vehicle.getId()
+                    : null,
+
+            request.getCategory(),
+
+            request.getDescription(),
+
+            request.getLatitude(),
+
+            request.getLongitude(),
+
+            request.getAddress(),
+
+            request.getStatus(),
+
+            request.getAssignedMechanicId(),
+
+            request.getCreatedAt(),
+
+            request.getUpdatedAt(),
+
+            request.getCompletedAt(),
+
+            request.getCancelledAt(),
+
+            vehicleResponse,
+
+            mechanicResponse
+    );
+}
 
 
     // =====================================================

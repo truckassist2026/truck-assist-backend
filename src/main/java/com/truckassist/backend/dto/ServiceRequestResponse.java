@@ -32,6 +32,10 @@ public record ServiceRequestResponse(
 
         OffsetDateTime completedAt,
 
-        OffsetDateTime cancelledAt
+        OffsetDateTime cancelledAt,
+
+        VehicleSummaryResponse vehicle,
+
+        MechanicSummaryResponse mechanic
 ) {
 }
