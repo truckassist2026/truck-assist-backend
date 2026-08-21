@@ -231,7 +231,7 @@ public class MechanicController {
     }
 
 
-    // =====================================================
+        // =====================================================
     // ACCEPT SERVICE REQUEST
     // =====================================================
 
@@ -259,4 +259,39 @@ public class MechanicController {
                         requestId
                 );
     }
+
+
+    // =====================================================
+    // UPDATE SERVICE REQUEST STATUS
+    // =====================================================
+
+    @PatchMapping(
+            "/requests/{requestId}/status"
+    )
+    @Operation(
+            summary =
+                    "Update service request status"
+    )
+    public ServiceRequestResponse updateRequestStatus(
+            Authentication authentication,
+
+            @PathVariable
+            UUID requestId,
+
+            @RequestParam
+            String status) {
+
+        UUID userId =
+                UUID.fromString(
+                        authentication.getName()
+                );
+
+        return serviceRequestService
+                .updateMechanicStatus(
+                        userId,
+                        requestId,
+                        status
+                );
+    }
+
 }

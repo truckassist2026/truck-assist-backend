@@ -6,8 +6,8 @@ import com.truckassist.backend.dto.MechanicServiceRequestResponse;
 import com.truckassist.backend.dto.MechanicVehicleResponse;
 import com.truckassist.backend.dto.RequestStatusHistoryResponse;
 import com.truckassist.backend.dto.ServiceRequestResponse;
-import com.truckassist.backend.dto.MechanicSummaryResponse;
 import com.truckassist.backend.dto.VehicleSummaryResponse;
+import com.truckassist.backend.dto.MechanicSummaryResponse;
 
 import com.truckassist.backend.entity.Driver;
 import com.truckassist.backend.entity.Mechanic;
@@ -848,9 +848,19 @@ getRequestByIdForMechanic(
             );
 
 
+    List<String> mechanicAssignedStatuses =
+            List.of(
+                    "ASSIGNED",
+                    "MECHANIC_EN_ROUTE",
+                    "ARRIVED",
+                    "IN_PROGRESS",
+                    "PAYMENT_PENDING"
+            );
+
+
     boolean isAssignedToCurrentMechanic =
-            "ASSIGNED".equalsIgnoreCase(
-                    status
+            mechanicAssignedStatuses.contains(
+                    status.toUpperCase()
             )
             &&
             request.getAssignedMechanicId() != null
@@ -1249,6 +1259,152 @@ getRequestByIdForMechanic(
     }
 
 
+
+    // =====================================================
+    // MECHANIC UPDATE REQUEST STATUS
+    // =====================================================
+    //
+    // Supported flow:
+    //
+    // ASSIGNED
+    //     ↓
+    // MECHANIC_EN_ROUTE
+    //     ↓
+    // ARRIVED
+    //     ↓
+    // IN_PROGRESS
+    //     ↓
+    // PAYMENT_PENDING
+    //
+    // =====================================================
+
+    public ServiceRequestResponse updateMechanicStatus(
+            UUID userId,
+            UUID requestId,
+            String newStatus) {
+
+        // =================================================
+        // GET CURRENT MECHANIC
+        // =================================================
+
+        Mechanic mechanic =
+                mechanicRepository
+                        .findByUserId(userId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Mechanic profile not found"
+                                )
+                        );
+
+        // =================================================
+        // MECHANIC MUST BE AVAILABLE
+        // =================================================
+
+        if (!mechanic.isAvailable()) {
+            throw new IllegalStateException(
+                    "Mechanic is not available"
+            );
+        }
+
+        // =================================================
+        // GET REQUEST
+        // =================================================
+
+        ServiceRequest request =
+                requestRepository
+                        .findById(requestId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Service request not found"
+                                )
+                        );
+
+        // =================================================
+        // REQUEST MUST BELONG TO CURRENT MECHANIC
+        // =================================================
+
+        if (
+                request.getAssignedMechanicId() == null ||
+                !request.getAssignedMechanicId()
+                        .equals(mechanic.getId())
+        ) {
+            throw new IllegalStateException(
+                    "Service request is not assigned to this mechanic"
+            );
+        }
+
+        // =================================================
+        // NORMALIZE STATUS
+        // =================================================
+
+        if (newStatus == null || newStatus.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Status is required"
+            );
+        }
+
+        String status =
+                newStatus
+                        .trim()
+                        .toUpperCase();
+
+        String currentStatus =
+                request.getStatus();
+
+        // =================================================
+        // VALIDATE STATUS TRANSITION
+        // =================================================
+
+        boolean validTransition =
+                ("ASSIGNED".equals(currentStatus)
+                        && "MECHANIC_EN_ROUTE".equals(status))
+                ||
+                ("MECHANIC_EN_ROUTE".equals(currentStatus)
+                        && "ARRIVED".equals(status))
+                ||
+                ("ARRIVED".equals(currentStatus)
+                        && "IN_PROGRESS".equals(status))
+                ||
+                ("IN_PROGRESS".equals(currentStatus)
+                        && "PAYMENT_PENDING".equals(status));
+
+        if (!validTransition) {
+            throw new IllegalStateException(
+                    "Invalid status transition: "
+                            + currentStatus
+                            + " -> "
+                            + status
+            );
+        }
+
+        // =================================================
+        // UPDATE STATUS
+        // =================================================
+
+        request.setStatus(status);
+
+        ServiceRequest saved =
+                requestRepository.save(request);
+
+        // =================================================
+        // STATUS HISTORY
+        // =================================================
+
+        addHistory(
+                saved,
+                status,
+                userId,
+                "Status updated by mechanic"
+        );
+
+        // =================================================
+        // RETURN
+        // =================================================
+
+        return toResponse(saved);
+    }
+
+
     // =====================================================
     // BUILD MECHANIC REQUEST RESPONSE
     // =====================================================
@@ -1610,122 +1766,94 @@ getRequestByIdForMechanic(
     // HELPER - SERVICE REQUEST RESPONSE
     // =====================================================
 
-    private ServiceRequestResponse toResponse(
+   private ServiceRequestResponse toResponse(
         ServiceRequest request) {
 
-    // =====================================================
-    // VEHICLE DETAILS
-    // =====================================================
+    VehicleSummaryResponse vehicle =
+            new VehicleSummaryResponse(
 
-    Vehicle vehicle =
-            request.getVehicle();
+                    request.getVehicle().getId(),
 
-    VehicleSummaryResponse vehicleResponse =
+                    request.getVehicle()
+                            .getRegistrationNumber(),
+
+                    request.getVehicle()
+                            .getManufacturer(),
+
+                    request.getVehicle()
+                            .getModel(),
+
+                    request.getVehicle()
+                            .getVehicleType(),
+
+                    request.getVehicle()
+                            .getManufacturingYear(),
+
+                    request.getVehicle()
+                            .getColor()
+            );
+
+
+    MechanicSummaryResponse mechanic =
             null;
 
-    if (vehicle != null) {
 
-        vehicleResponse =
-                new VehicleSummaryResponse(
+    if (
+            request.getAssignedMechanicId()
+                    != null
+    ) {
 
-                        vehicle.getId(),
-
-                        vehicle.getRegistrationNumber(),
-
-                        vehicle.getManufacturer(),
-
-                        vehicle.getModel(),
-
-                        vehicle.getVehicleType(),
-
-                        vehicle.getManufacturingYear(),
-
-                        vehicle.getColor()
-                );
-    }
-
-
-    // =====================================================
-    // MECHANIC DETAILS
-    // =====================================================
-
-    MechanicSummaryResponse mechanicResponse =
-            null;
-
-    if (request.getAssignedMechanicId() != null) {
-
-        Mechanic mechanic =
+        mechanic =
                 mechanicRepository
                         .findById(
                                 request.getAssignedMechanicId()
                         )
+                        .map(m -> {
+
+                            return new MechanicSummaryResponse(
+
+                                    m.getId(),
+
+                                    m.getUser()
+                                            .getName(),
+
+                                    m.getUser()
+                                            .getPhone(),
+
+                                    m.getUser()
+                                            .getProfileImageUrl(),
+
+                                    m.getExperienceYears(),
+
+                                    m.getWorkshopName(),
+
+                                    m.getWorkshopAddress(),
+
+                                    m.getRating(),
+
+                                    m.getTotalJobs(),
+
+                                    m.getLatitude(),
+
+                                    m.getLongitude(),
+
+                                    m.getLastLocationAt()
+                            );
+
+                        })
                         .orElse(null);
-
-        if (mechanic != null) {
-
-            String name = null;
-            String phone = null;
-            String profileImageUrl = null;
-
-            if (mechanic.getUser() != null) {
-
-                name =
-                        mechanic.getUser()
-                                .getName();
-
-                phone =
-                        mechanic.getUser()
-                                .getPhone();
-
-                profileImageUrl =
-                        mechanic.getUser()
-                                .getProfileImageUrl();
-            }
-
-            mechanicResponse =
-                    new MechanicSummaryResponse(
-
-                            mechanic.getId(),
-
-                            name,
-
-                            phone,
-
-                            profileImageUrl,
-
-                            mechanic.getExperienceYears(),
-
-                            mechanic.getWorkshopName(),
-
-                            mechanic.getWorkshopAddress(),
-
-                            mechanic.getRating(),
-
-                            mechanic.getTotalJobs(),
-
-                            mechanic.getLatitude(),
-
-                            mechanic.getLongitude(),
-
-                            mechanic.getLastLocationAt()
-                    );
-        }
     }
 
-
-    // =====================================================
-    // SERVICE REQUEST RESPONSE
-    // =====================================================
 
     return new ServiceRequestResponse(
 
             request.getId(),
 
-            request.getDriver().getId(),
+            request.getDriver()
+                    .getId(),
 
-            vehicle != null
-                    ? vehicle.getId()
-                    : null,
+            request.getVehicle()
+                    .getId(),
 
             request.getCategory(),
 
@@ -1749,11 +1877,12 @@ getRequestByIdForMechanic(
 
             request.getCancelledAt(),
 
-            vehicleResponse,
+            vehicle,
 
-            mechanicResponse
+            mechanic
     );
 }
+
 
 
     // =====================================================
