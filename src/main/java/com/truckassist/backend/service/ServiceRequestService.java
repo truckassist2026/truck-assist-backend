@@ -21,6 +21,7 @@ import com.truckassist.backend.repository.DriverRepository;
 import com.truckassist.backend.repository.MechanicRepository;
 import com.truckassist.backend.repository.RequestStatusHistoryRepository;
 import com.truckassist.backend.repository.ServiceRequestRepository;
+import com.truckassist.backend.repository.ServiceCategoryRepository;
 import com.truckassist.backend.repository.VehicleRepository;
 
 import org.springframework.stereotype.Service;
@@ -56,6 +57,8 @@ public class ServiceRequestService {
 
     private final MechanicRepository mechanicRepository;
 
+    private final ServiceCategoryRepository serviceCategoryRepository;
+
 
     // =====================================================
     // CONSTRUCTOR
@@ -66,7 +69,8 @@ public class ServiceRequestService {
             RequestStatusHistoryRepository historyRepository,
             DriverRepository driverRepository,
             VehicleRepository vehicleRepository,
-            MechanicRepository mechanicRepository) {
+            MechanicRepository mechanicRepository,
+            ServiceCategoryRepository serviceCategoryRepository) {
 
         this.requestRepository =
                 requestRepository;
@@ -82,6 +86,9 @@ public class ServiceRequestService {
 
         this.mechanicRepository =
                 mechanicRepository;
+
+        this.serviceCategoryRepository =
+                serviceCategoryRepository;
     }
 
 
@@ -1681,25 +1688,31 @@ getRequestByIdForMechanic(
             String category) {
 
 
-        List<String> allowed =
-                List.of(
-                        "BREAKDOWN",
-                        "TYRE",
-                        "BATTERY",
-                        "FUEL",
-                        "OTHER"
-                );
-
-
-        if (!allowed.contains(
-                category
-        )) {
+        if (category == null ||
+                category.trim().isEmpty()) {
 
             throw new IllegalArgumentException(
-                    "Invalid service category: "
-                            + category
+                    "Service category is required"
             );
         }
+
+
+        String normalizedCategory =
+                category
+                        .trim()
+                        .toUpperCase();
+
+
+        serviceCategoryRepository
+                .findByCodeAndActiveTrue(
+                        normalizedCategory
+                )
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Invalid or inactive service category: "
+                                        + normalizedCategory
+                        )
+                );
     }
 
 
@@ -1885,6 +1898,125 @@ getRequestByIdForMechanic(
     );
 }
 
+// =====================================================
+// GET REQUEST HISTORY FOR CURRENT MECHANIC
+// =====================================================
+//
+// Used by:
+// GET /api/v1/mechanics/requests/history
+//
+// Unlike getAvailableRequests(), this returns the
+// mechanic's previously assigned requests, including:
+//
+// ASSIGNED
+// MECHANIC_EN_ROUTE
+// ARRIVED
+// IN_PROGRESS
+// PAYMENT_PENDING
+// COMPLETED
+// CANCELLED
+//
+// =====================================================
+
+@Transactional(readOnly = true)
+public List<MechanicServiceRequestResponse> getRequestHistory(
+        UUID userId) {
+
+    // -------------------------------------------------
+    // FIND MECHANIC
+    // -------------------------------------------------
+
+    Mechanic mechanic =
+            mechanicRepository
+                    .findByUserId(userId)
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException(
+                                    "Mechanic profile not found"
+                            )
+                    );
+
+    UUID mechanicId =
+            mechanic.getId();
+
+
+    // -------------------------------------------------
+    // GET ALL REQUESTS ASSIGNED TO THIS MECHANIC
+    // -------------------------------------------------
+
+    List<ServiceRequest> requests =
+            requestRepository
+                    .findByAssignedMechanicIdOrderByUpdatedAtDesc(
+                            mechanicId
+                    );
+
+
+    // -------------------------------------------------
+    // MECHANIC LOCATION
+    // -------------------------------------------------
+
+    boolean hasMechanicLocation =
+            mechanic.getLatitude() != null &&
+            mechanic.getLongitude() != null;
+
+    double mechanicLatitude =
+            hasMechanicLocation
+                    ? mechanic.getLatitude().doubleValue()
+                    : 0.0;
+
+    double mechanicLongitude =
+            hasMechanicLocation
+                    ? mechanic.getLongitude().doubleValue()
+                    : 0.0;
+
+
+    // -------------------------------------------------
+    // BUILD RESPONSE
+    // -------------------------------------------------
+
+    return requests
+            .stream()
+
+            // SEARCHING requests are available requests,
+            // not mechanic history.
+            .filter(request ->
+                    request.getStatus() != null
+            )
+
+            .filter(request ->
+                    !"SEARCHING".equals(
+                            request.getStatus()
+                    )
+            )
+
+            .map(request -> {
+
+                double distanceKm = 0.0;
+
+                if (
+                        hasMechanicLocation &&
+                        request.getLatitude() != null &&
+                        request.getLongitude() != null
+                ) {
+
+                    distanceKm =
+                            calculateDistanceKm(
+                                    mechanicLatitude,
+                                    mechanicLongitude,
+                                    request.getLatitude()
+                                            .doubleValue(),
+                                    request.getLongitude()
+                                            .doubleValue()
+                            );
+                }
+
+                return buildMechanicRequestResponse(
+                        request,
+                        distanceKm
+                );
+            })
+
+            .toList();
+}
 
 
     // =====================================================
