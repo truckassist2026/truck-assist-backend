@@ -10,15 +10,14 @@ import com.truckassist.backend.repository.AuthOtpRepository;
 import com.truckassist.backend.repository.DriverRepository;
 import com.truckassist.backend.repository.MechanicRepository;
 import com.truckassist.backend.repository.UserRepository;
+
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.Random;
 
 @Service
 @Transactional
@@ -28,15 +27,12 @@ public class AuthService {
     private final UserRepository userRepository;
     private final DriverRepository driverRepository;
     private final MechanicRepository mechanicRepository;
-    private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final TwoFactorService twoFactorService;
 
     private final int otpExpiryMinutes;
     private final int maxAttempts;
     private final int resendSeconds;
-    private final boolean devMode;
-
-    private final Random random = new Random();
 
     // =====================================================
     // CONSTRUCTOR
@@ -47,8 +43,8 @@ public class AuthService {
             UserRepository userRepository,
             DriverRepository driverRepository,
             MechanicRepository mechanicRepository,
-            PasswordEncoder passwordEncoder,
             JwtService jwtService,
+            TwoFactorService twoFactorService,
 
             @Value("${truckassist.auth.otp.expiry-minutes:5}")
             int otpExpiryMinutes,
@@ -57,23 +53,20 @@ public class AuthService {
             int maxAttempts,
 
             @Value("${truckassist.auth.otp.resend-seconds:60}")
-            int resendSeconds,
-
-            @Value("${truckassist.auth.otp.dev-mode:false}")
-            boolean devMode) {
+            int resendSeconds) {
 
         this.otpRepository = otpRepository;
         this.userRepository = userRepository;
         this.driverRepository = driverRepository;
         this.mechanicRepository = mechanicRepository;
-        this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.twoFactorService = twoFactorService;
 
         this.otpExpiryMinutes = otpExpiryMinutes;
         this.maxAttempts = maxAttempts;
         this.resendSeconds = resendSeconds;
-        this.devMode = devMode;
     }
+
 
     // =====================================================
     // DRIVER - SEND OTP
@@ -86,6 +79,7 @@ public class AuthService {
                 "DRIVER"
         );
     }
+
 
     // =====================================================
     // ROLE-AWARE SEND OTP
@@ -100,6 +94,7 @@ public class AuthService {
 
         OffsetDateTime now =
                 OffsetDateTime.now();
+
 
         // =================================================
         // CHECK RESEND LIMIT
@@ -136,21 +131,30 @@ public class AuthService {
             }
         }
 
+
         // =================================================
-        // GENERATE OTP
+        // REQUEST OTP FROM 2FACTOR
         // =================================================
 
-        String otp =
-                generateOtp();
+        String providerSessionId =
+                twoFactorService.sendOtp(
+                        phone
+                );
+
+
+        // =================================================
+        // STORE 2FACTOR SESSION
+        // =================================================
 
         AuthOtp authOtp =
                 new AuthOtp();
 
-        authOtp.setPhone(phone);
+        authOtp.setPhone(
+                phone
+        );
 
-        // Never store actual OTP
-        authOtp.setOtpHash(
-                passwordEncoder.encode(otp)
+        authOtp.setProviderSessionId(
+                providerSessionId
         );
 
         authOtp.setExpiresAt(
@@ -160,48 +164,33 @@ public class AuthService {
         );
 
         authOtp.setAttempts(0);
+
         authOtp.setVerified(false);
 
-        otpRepository.save(authOtp);
+        otpRepository.save(
+                authOtp
+        );
+
 
         // =================================================
-        // DEVELOPMENT MODE
+        // RESPONSE
         // =================================================
-
-        if (devMode) {
-
-            System.out.println(
-                    "========================================"
-            );
-
-            System.out.println(
-                    "TRUCK ASSIST DEVELOPMENT OTP"
-            );
-
-            System.out.println(
-                    "Role: " + role
-            );
-
-            System.out.println(
-                    "Phone: " + phone
-            );
-
-            System.out.println(
-                    "OTP: " + otp
-            );
-
-            System.out.println(
-                    "========================================"
-            );
-        }
+        //
+        // IMPORTANT:
+        // We NEVER return the OTP.
+        //
+        // 2Factor generates the OTP and sends it
+        // directly to the user's phone.
+        // =================================================
 
         return new SendOtpResponse(
                 true,
                 "OTP sent successfully",
                 otpExpiryMinutes * 60,
-                devMode ? otp : null
+                null
         );
     }
+
 
     // =====================================================
     // DRIVER - VERIFY OTP
@@ -218,6 +207,7 @@ public class AuthService {
         );
     }
 
+
     // =====================================================
     // ROLE-AWARE VERIFY OTP
     // =====================================================
@@ -233,8 +223,24 @@ public class AuthService {
         requestedRole =
                 normalizeRole(requestedRole);
 
+
         // =================================================
-        // FIND OTP
+        // VALIDATE OTP INPUT
+        // =================================================
+
+        if (otp == null ||
+                otp.trim().isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "OTP is required"
+            );
+        }
+
+        otp = otp.trim();
+
+
+        // =================================================
+        // FIND LATEST OTP SESSION
         // =================================================
 
         AuthOtp authOtp =
@@ -248,12 +254,13 @@ public class AuthService {
                                 )
                         );
 
-        OffsetDateTime now =
-                OffsetDateTime.now();
 
         // =================================================
         // CHECK EXPIRY
         // =================================================
+
+        OffsetDateTime now =
+                OffsetDateTime.now();
 
         if (now.isAfter(
                 authOtp.getExpiresAt())) {
@@ -262,6 +269,7 @@ public class AuthService {
                     "OTP has expired"
             );
         }
+
 
         // =================================================
         // CHECK MAX ATTEMPTS
@@ -275,6 +283,7 @@ public class AuthService {
             );
         }
 
+
         // =================================================
         // INCREMENT ATTEMPT
         // =================================================
@@ -283,29 +292,45 @@ public class AuthService {
                 authOtp.getAttempts() + 1
         );
 
+
         // =================================================
-        // VERIFY OTP
+        // VERIFY OTP THROUGH 2FACTOR
         // =================================================
 
-        if (!passwordEncoder.matches(
-                otp,
-                authOtp.getOtpHash())) {
+        boolean verified =
+                twoFactorService.verifyOtp(
+                        authOtp.getProviderSessionId(),
+                        otp
+                );
 
-            otpRepository.save(authOtp);
+        if (!verified) {
+
+            otpRepository.save(
+                    authOtp
+            );
 
             throw new IllegalArgumentException(
                     "Invalid OTP"
             );
         }
 
+
         // =================================================
         // OTP VERIFIED
         // =================================================
 
-        authOtp.setVerified(true);
-        authOtp.setVerifiedAt(now);
+        authOtp.setVerified(
+                true
+        );
 
-        otpRepository.save(authOtp);
+        authOtp.setVerifiedAt(
+                now
+        );
+
+        otpRepository.save(
+                authOtp
+        );
+
 
         // =================================================
         // FIND OR CREATE USER
@@ -316,7 +341,9 @@ public class AuthService {
                         .findByPhone(phone)
                         .orElse(null);
 
-        boolean isNewUser = false;
+        boolean isNewUser =
+                false;
+
 
         // =================================================
         // NEW USER
@@ -327,7 +354,9 @@ public class AuthService {
             user =
                     new User();
 
-            user.setPhone(phone);
+            user.setPhone(
+                    phone
+            );
 
             user.setRole(
                     requestedRole
@@ -338,9 +367,12 @@ public class AuthService {
             );
 
             user =
-                    userRepository.save(user);
+                    userRepository.save(
+                            user
+                    );
 
-            isNewUser = true;
+            isNewUser =
+                    true;
 
             System.out.println(
                     "New "
@@ -349,6 +381,7 @@ public class AuthService {
                             + user.getId()
             );
         }
+
 
         // =================================================
         // EXISTING USER
@@ -360,6 +393,7 @@ public class AuthService {
                     normalizeRole(
                             user.getRole()
                     );
+
 
             // -------------------------------------------------
             // Do not silently change account type
@@ -375,6 +409,7 @@ public class AuthService {
                 );
             }
 
+
             // -------------------------------------------------
             // Ensure active
             // -------------------------------------------------
@@ -388,9 +423,12 @@ public class AuthService {
                 );
 
                 user =
-                        userRepository.save(user);
+                        userRepository.save(
+                                user
+                        );
             }
         }
+
 
         // =====================================================
         // ENSURE DRIVER PROFILE
@@ -404,6 +442,7 @@ public class AuthService {
             );
         }
 
+
         // =====================================================
         // ENSURE MECHANIC PROFILE
         // =====================================================
@@ -416,6 +455,7 @@ public class AuthService {
             );
         }
 
+
         // =====================================================
         // GENERATE JWT
         // =====================================================
@@ -424,6 +464,7 @@ public class AuthService {
                 jwtService.generateToken(
                         user
                 );
+
 
         // =====================================================
         // AUTH RESPONSE
@@ -438,6 +479,7 @@ public class AuthService {
                 isNewUser
         );
     }
+
 
     // =====================================================
     // ENSURE DRIVER PROFILE
@@ -458,6 +500,7 @@ public class AuthService {
             return;
         }
 
+
         // =================================================
         // CREATE DRIVER
         // =================================================
@@ -468,6 +511,7 @@ public class AuthService {
         driver.setUser(
                 user
         );
+
 
         // Profile details will be completed
         // from Driver Profile screen.
@@ -502,6 +546,7 @@ public class AuthService {
         );
     }
 
+
     // =====================================================
     // ENSURE MECHANIC PROFILE
     // =====================================================
@@ -520,6 +565,7 @@ public class AuthService {
             return;
         }
 
+
         // =================================================
         // CREATE MECHANIC
         // =================================================
@@ -530,6 +576,7 @@ public class AuthService {
         mechanic.setUser(
                 user
         );
+
 
         // =================================================
         // INITIAL PROFILE
@@ -547,7 +594,9 @@ public class AuthService {
                 null
         );
 
+
         // New mechanic starts offline
+
         mechanic.setAvailable(
                 false
         );
@@ -582,19 +631,6 @@ public class AuthService {
         );
     }
 
-    // =====================================================
-    // GENERATE OTP
-    // =====================================================
-
-    private String generateOtp() {
-
-        return String.format(
-                "%06d",
-                random.nextInt(
-                        1_000_000
-                )
-        );
-    }
 
     // =====================================================
     // NORMALIZE PHONE
@@ -627,6 +663,7 @@ public class AuthService {
 
         return normalized;
     }
+
 
     // =====================================================
     // NORMALIZE ROLE

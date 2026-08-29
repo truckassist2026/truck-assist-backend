@@ -20,8 +20,8 @@ public class AuthOtp {
     @Column(nullable = false, length = 20)
     private String phone;
 
-    @Column(name = "otp_hash", nullable = false)
-    private String otpHash;
+    @Column(name = "provider_session_id", nullable = false, length = 200)
+    private String providerSessionId;
 
     @Column(name = "expires_at", nullable = false)
     private OffsetDateTime expiresAt;
