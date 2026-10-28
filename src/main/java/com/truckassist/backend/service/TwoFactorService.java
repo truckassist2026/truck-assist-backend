@@ -1,4 +1,3 @@
-```java
 package com.truckassist.backend.service;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -111,5 +110,5 @@ public class TwoFactorService {
             String StatusCode
     ) {
     }
+
 }
-```
